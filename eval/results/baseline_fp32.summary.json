@@ -1,0 +1,442 @@
+{
+  "engine": "fairseq",
+  "device": "cpu",
+  "lang": "hi",
+  "beam_width": 5,
+  "topk": 5,
+  "data": "eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.test.tsv",
+  "num_inputs": 4442,
+  "metrics": {
+    "top1_accuracy_pct": 61.35,
+    "top5_accuracy_pct": 87.35,
+    "cer_top1": 0.117
+  },
+  "timing": {
+    "total_seconds": 337.7,
+    "ms_per_word": 76.035
+  },
+  "top1_misses": [
+    {
+      "input": "aabantit",
+      "expected": [
+        "आबंटित"
+      ],
+      "predicted": [
+        "आबंतित",
+        "आबन्तित",
+        "आबंटित",
+        "आबंतीत",
+        "आबांतित"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aadan",
+      "expected": [
+        "आदान"
+      ],
+      "predicted": [
+        "आदन",
+        "आदान",
+        "आड़न",
+        "आदं",
+        "आडन"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aagaa",
+      "expected": [
+        "आग़ा"
+      ],
+      "predicted": [
+        "आगा",
+        "आँगा",
+        "आंगा",
+        "अगा",
+        "आगां"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aagah",
+      "expected": [
+        "आग़ा"
+      ],
+      "predicted": [
+        "आगह",
+        "आगाह",
+        "आगः",
+        "अगह",
+        "आघा"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aagashe",
+      "expected": [
+        "आगाशे"
+      ],
+      "predicted": [
+        "आगशे",
+        "आगाशे",
+        "आगशें",
+        "आंगशे",
+        "आगषे"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aahnaan",
+      "expected": [
+        "आह्नान"
+      ],
+      "predicted": [
+        "आहनां",
+        "आहनान",
+        "आह्नान",
+        "आह्नां",
+        "आहनाँ"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aahnan",
+      "expected": [
+        "आह्नान"
+      ],
+      "predicted": [
+        "आहनन",
+        "आहनान",
+        "आह्नन",
+        "आहनां",
+        "अहनान"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aakhet",
+      "expected": [
+        "आखेट"
+      ],
+      "predicted": [
+        "आखेत",
+        "आंखेत",
+        "आँखेत",
+        "आखेट",
+        "अखेत"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aanand",
+      "expected": [
+        "आनद"
+      ],
+      "predicted": [
+        "आनंद",
+        "आनन्द",
+        "अनन्द",
+        "अनंद",
+        "अानंद"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aapadaaaen",
+      "expected": [
+        "आपदाएं"
+      ],
+      "predicted": [
+        "आपड़ाएं",
+        "आपदाएँ",
+        "आपड़ाएँ",
+        "आपदाएं",
+        "आपडाएं"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aarushi",
+      "expected": [
+        "आरुषि"
+      ],
+      "predicted": [
+        "आरुषी",
+        "आरुषि",
+        "आरूषी",
+        "आरूषि",
+        "आरुशी"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aaryan",
+      "expected": [
+        "आर्यों"
+      ],
+      "predicted": [
+        "आर्यन",
+        "आर्यान",
+        "आर्यण",
+        "आरयान",
+        "आरयन"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aasaan",
+      "expected": [
+        "आसान"
+      ],
+      "predicted": [
+        "आसां",
+        "आसान",
+        "आसाँ",
+        "आँसां",
+        "आँसा"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aasan",
+      "expected": [
+        "आसान"
+      ],
+      "predicted": [
+        "आसन",
+        "आसान",
+        "आँसन",
+        "आसन्‌",
+        "आसं"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aastin",
+      "expected": [
+        "आस्तीन"
+      ],
+      "predicted": [
+        "आस्तिन",
+        "आस्तीं",
+        "आसतीं",
+        "आस्टिन",
+        "आस्तीन"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aata",
+      "expected": [
+        "आटा"
+      ],
+      "predicted": [
+        "आता",
+        "आटा",
+        "आत",
+        "अता",
+        "आट"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aatmayen",
+      "expected": [
+        "आत्माएं"
+      ],
+      "predicted": [
+        "आत्मयें",
+        "आत्मायें",
+        "आत्माएं",
+        "आत्माएँ",
+        "आत्मयेन"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aavishakaar",
+      "expected": [
+        "आविष्कार"
+      ],
+      "predicted": [
+        "आविषकार",
+        "आविशकार",
+        "आविष्कार",
+        "आविषाकार",
+        "आविश्कार"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "aavriti",
+      "expected": [
+        "आवृत्ति"
+      ],
+      "predicted": [
+        "आवृति",
+        "आवृती",
+        "अवृति",
+        "आवृतित",
+        "आवृतिः"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aavritiyon",
+      "expected": [
+        "आवृत्तियों"
+      ],
+      "predicted": [
+        "आवृतियों",
+        "आवृतियो",
+        "आवृतीयों",
+        "आवृत्तियो",
+        "आवृतियोँ"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aawajen",
+      "expected": [
+        "आवाज़ें"
+      ],
+      "predicted": [
+        "आवाजें",
+        "आवजें",
+        "आवजेन",
+        "आवाजे",
+        "आवजन"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aawajon",
+      "expected": [
+        "आवाज़ों"
+      ],
+      "predicted": [
+        "आवाजों",
+        "आवजों",
+        "आंवाजों",
+        "आवाजो",
+        "आवाजोन"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aawazon",
+      "expected": [
+        "आवाज़ों"
+      ],
+      "predicted": [
+        "आवाजों",
+        "आवज़ों",
+        "आवाज़ो",
+        "आवजों",
+        "आवाजो"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "aazmaanaa",
+      "expected": [
+        "आजमाना"
+      ],
+      "predicted": [
+        "आज़माना",
+        "आजमाना",
+        "आज़्माना",
+        "आज्माना",
+        "अज़माना"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "abantit",
+      "expected": [
+        "आबंटित"
+      ],
+      "predicted": [
+        "अबंतित",
+        "अबन्तित",
+        "अबांतित",
+        "अबंटित",
+        "अबंतीत"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "abaru",
+      "expected": [
+        "आबरू"
+      ],
+      "predicted": [
+        "अबारू",
+        "अबारु",
+        "अबरू",
+        "अबरु",
+        "आबारू"
+      ],
+      "top5_hit": false
+    },
+    {
+      "input": "abbot",
+      "expected": [
+        "एबोट"
+      ],
+      "predicted": [
+        "एबॉट",
+        "एबोट",
+        "अबॉट",
+        "अबोट",
+        "अब्बट"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "abbott",
+      "expected": [
+        "एबट",
+        "एबोट"
+      ],
+      "predicted": [
+        "एबॉट",
+        "अबॉट",
+        "एबोट",
+        "एबट",
+        "अबोट"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "abhi",
+      "expected": [
+        "अभी"
+      ],
+      "predicted": [
+        "अभि",
+        "अभी",
+        "आभी",
+        "आभि",
+        "एभी"
+      ],
+      "top5_hit": true
+    },
+    {
+      "input": "abut",
+      "expected": [
+        "एबट"
+      ],
+      "predicted": [
+        "अबुत",
+        "अबूत",
+        "अबुट",
+        "अबूट",
+        "एबट"
+      ],
+      "top5_hit": true
+    }
+  ],
+  "_note": "Slimmed for commit. Full per-word predictions live in the gitignored source file; regenerate with eval/eval.py."
+}

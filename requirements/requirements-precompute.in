@@ -1,0 +1,42 @@
+# OFFLINE-ONLY deps: baseline eval (stock fairseq XlitEngine) + dictionary
+# precompute. These run on the GPU box, NOT in the serving Docker image.
+#
+# This file is deliberately NOT pip-compiled. Three upstream problems make a
+# clean lock impractical:
+#   1. fairseq has no cp310 wheel and its PyPI sdist fails PEP 517 metadata
+#      generation (missing fairseq/version.txt). Install from git instead.
+#   2. ai4bharat-transliteration -> urduhack pins tensorflow-datasets~=3.1 and
+#      tf2crf (2020-era TensorFlow) which will not co-resolve with a modern
+#      py3.10 stack. urduhack is only needed for Urdu; skip it for Hindi.
+#   3. fairseq -> hydra-core 1.0.7 -> omegaconf 2.0.x, whose wheels carry legacy
+#      metadata (PyYAML (>=5.1.*)) that pip >= 24.1 REJECTS with
+#      "invalid metadata / ResolutionImpossible". Downgrade pip to < 24.1 in the
+#      env before installing fairseq.
+#
+# Recommended install order inside the `xlit` conda env (after the main
+# requirements.txt is installed):
+#
+#   # 1. Torch with CUDA (GPU box) -- match the driver's CUDA (12.4 here):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install cython "numpy<2"
+#
+#   # 2. Downgrade pip so omegaconf 2.0.x legacy metadata is accepted (problem 3):
+#   pip install "pip<24.1"
+#
+#   # 3. fairseq from git (the sdist is broken); build needs torch + cython:
+#   pip install --no-build-isolation git+https://github.com/facebookresearch/fairseq.git@v0.12.2
+#
+#   # 4. ai4bharat-transliteration without its broken urduhack dep:
+#   pip install --no-deps ai4bharat-transliteration
+#   pip install pydload sacremoses pandas tqdm ujson mock tensorboardX pyarrow indic-nlp-library
+#
+# Do NOT install urduhack. ai4bharat imports it unconditionally but only calls it
+# for lang_code == 'ur'. Use server.compat.stub_urduhack() instead (importing the
+# real urduhack pulls TensorFlow via urduhack.models.ner).
+#
+# Verify (note beam_width >= topk, else you silently get fewer candidates):
+#   python -c "
+#   from server.compat import stub_urduhack; stub_urduhack()
+#   from ai4bharat.transliteration import XlitEngine
+#   print(XlitEngine('hi', beam_width=5, rescore=False).translit_word('mera', lang_code='hi', topk=5))"
+#   # -> ['मेरा', 'मीरा', 'मैरा', 'मेर', 'मरा']

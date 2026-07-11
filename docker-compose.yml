@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - ENGINE=${ENGINE:-ct2}
+      - DICT_PATH=/app/server/data/dictionary_hi.json
+      - MODEL_DIR=/app/models/indicxlit/ct2_int8
+      - LANG=${LANG:-hi}
+      - BEAM_WIDTH=${BEAM_WIDTH:-5}
+      - TOPK=${TOPK:-5}
+      - LRU_CACHE_SIZE=${LRU_CACHE_SIZE:-10000}
+      - WORKERS=${WORKERS:-4}
+      - DEVICE=cpu
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./models:/app/models:ro
+      - ./server/data:/app/server/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./demo
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

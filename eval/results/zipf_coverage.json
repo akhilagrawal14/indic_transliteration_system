@@ -1,0 +1,56 @@
+{
+  "corpus": {
+    "dev_tokens": 88658,
+    "test_tokens": 86872,
+    "test_unique_types": 19119,
+    "zipf_self_coverage": [
+      {
+        "top_n": 100,
+        "coverage_pct": 41.43
+      },
+      {
+        "top_n": 500,
+        "coverage_pct": 56.39
+      },
+      {
+        "top_n": 1000,
+        "coverage_pct": 63.96
+      },
+      {
+        "top_n": 2000,
+        "coverage_pct": 71.67
+      },
+      {
+        "top_n": 5000,
+        "coverage_pct": 81.99
+      },
+      {
+        "top_n": 10000,
+        "coverage_pct": 89.5
+      }
+    ],
+    "dictionary_hit_rates": {
+      "lexicon_only": {
+        "volume_hit_rate_pct": 77.22,
+        "unique_hit_rate_pct": 43.8,
+        "dict_entries": 41345
+      },
+      "corpus_dev_only": {
+        "volume_hit_rate_pct": 84.65,
+        "unique_hit_rate_pct": 41.86,
+        "dict_entries": 19102
+      },
+      "lexicon_plus_corpus_dev": {
+        "volume_hit_rate_pct": 89.47,
+        "unique_hit_rate_pct": 57.9,
+        "dict_entries": 52045
+      }
+    }
+  },
+  "lexicon_view_do_not_use": {
+    "train_unique": 41345,
+    "test_unique": 4442,
+    "held_out_unique_hit_rate_pct": 10.36,
+    "note": "Splits are disjoint by construction; not a cache-hit proxy."
+  }
+}

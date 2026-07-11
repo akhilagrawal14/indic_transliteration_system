@@ -1,0 +1,78 @@
+{
+  "config": {
+    "beam_width": 5,
+    "topk": 5,
+    "num_words": 200,
+    "iterations": 500,
+    "warmup": 20,
+    "cpu_count": 24
+  },
+  "engines": {
+    "dictionary": {
+      "n": 500,
+      "mean_ms": 0.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.001,
+      "p99_ms": 0.001,
+      "min_ms": 0.0,
+      "max_ms": 0.005,
+      "throughput_qps": 2570802.2,
+      "cold_start_ms": 108.0,
+      "rss_delta_mb": 20.9,
+      "entries": 41345,
+      "device": "cpu"
+    },
+    "ct2_int8_1thread": {
+      "n": 500,
+      "mean_ms": 7.864,
+      "p50_ms": 7.387,
+      "p95_ms": 11.639,
+      "p99_ms": 13.699,
+      "min_ms": 4.207,
+      "max_ms": 13.958,
+      "throughput_qps": 127.2,
+      "cold_start_ms": 26.3,
+      "rss_delta_mb": 28.5,
+      "device": "cpu x1"
+    },
+    "ct2_int8_allthreads": {
+      "n": 500,
+      "mean_ms": 7.236,
+      "p50_ms": 6.824,
+      "p95_ms": 10.508,
+      "p99_ms": 12.293,
+      "min_ms": 3.906,
+      "max_ms": 12.509,
+      "throughput_qps": 138.2,
+      "cold_start_ms": 10.1,
+      "rss_delta_mb": 12.2,
+      "device": "cpu xN"
+    },
+    "ct2_int8_gpu": {
+      "n": 500,
+      "mean_ms": 13.14,
+      "p50_ms": 12.334,
+      "p95_ms": 18.527,
+      "p99_ms": 21.626,
+      "min_ms": 7.441,
+      "max_ms": 22.184,
+      "throughput_qps": 76.1,
+      "cold_start_ms": 343.8,
+      "rss_delta_mb": 175.8,
+      "device": "L4"
+    },
+    "fairseq_fp32": {
+      "n": 150,
+      "mean_ms": 78.117,
+      "p50_ms": 73.339,
+      "p95_ms": 107.826,
+      "p99_ms": 125.366,
+      "min_ms": 45.39,
+      "max_ms": 132.289,
+      "throughput_qps": 12.8,
+      "cold_start_ms": 2846.9,
+      "rss_delta_mb": 650.6,
+      "device": "cpu"
+    }
+  }
+}
