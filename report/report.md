@@ -9,13 +9,16 @@
 
 ### 1.1 Traffic Model
 
-*(Fill in after building the prototype)*
+This model drives the load tests (§4.2–4.3) and the cost model (§6), both of which
+were built and run. There is no real courtroom traffic to sample yet, so these are
+the derived parameters the prototype was tested against (capturing real editor
+request traces is the next validation step, §7.3):
 
-- Typing speed assumption: ~30-50 WPM during active dictation
+- Typing speed: ~30-50 WPM during active dictation
 - Lookup trigger: word boundary with ~200ms debounce (not per-keystroke)
 - Per active user: ~0.5-0.9 lookups/second while typing
 - Active duty cycle at peak: ~50-70% of 500 concurrent users
-- **Estimated peak RPS: ~200-350 requests/second**
+- **Peak RPS: ~200-350 requests/second** (the target load test ran at ~393 RPS, §4.2)
 - Request size: 3-12 character Latin string. Response size: ~200-400 bytes JSON
 - Daily volume: ~15M-50M lookups/day across 5,000 DAU
 
@@ -144,6 +147,7 @@ The conversion succeeded, so the planned ONNX fallback was never needed.
 
 - `GET /transliterate?word=...&lang=...&topk=...`
 - Response includes `source` field (dict/cache/model) and `latency_ms`
+- Request coalescing (single-flight) is implemented (`server/singleflight.py`, unit-tested): concurrent misses for the same word share one inference, so a suddenly-trending legal name cannot stampede the model. Coalesced followers are currently attributed to `cache` in `/metrics` (a distinct `coalesced` label would sharpen observability).
 - Caching is application-owned, **not** HTTP/CDN-based (see ADR-3, option b): responses are served `Cache-Control: no-store`, and the caching benefit comes from the server LRU plus the browser session LRU + offline dictionary. This avoids external caches holding results a model/dict redeploy would invalidate.
 
 ### 3.4 Reproducibility
@@ -434,7 +438,6 @@ Validation and hardening (the gap between "benchmarked prototype" and "productio
 - **True server ceiling + real-instance testing.** Sustained 5-minute runs at ~782 and ~906 RPS are now done (§4.3) and confirm ~800 RPS/box is comfortably in-budget with the box only ~1/3 utilized — but they also showed the single-process Locust generator, not the server, is what caps throughput past ~800 RPS. Remaining work: a **distributed load generator** (multiple Locust workers / separate load boxes) to find where the server *itself* saturates, plus a real n2-standard-4 behind TLS + a load balancer with an SLO and headroom (the current numbers are a same-box CPU-capacity approximation).
 - **Statistical rigor.** Paired bootstrap / McNemar on the paired predictions instead of the informal "within noise"; the 98.81% identical-top-1 and 3-worse/3-better disagreement already point the same way.
 - **Production observability.** Replace the debug-only per-worker `/metrics` with Prometheus histograms (multi-process, per-source labels) and per-courtroom p95 dashboards.
-- **Request coalescing (single-flight).** Concurrent misses for the same new word each run inference; a per-key lock would prevent a stampede on a newly-trending legal name.
 - **Offline hardening beyond the client dictionary.** On-device WASM inference and a service-worker cache for true offline operation; personalized accept-history ranking; streaming prefix suggestions.
 
 Runtime/precision (documented, not run here):
