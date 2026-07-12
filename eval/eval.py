@@ -67,12 +67,13 @@ def best_cer(prediction: str, references: Set[str]) -> float:
 
 
 def build_engine(name: str, lang: str, beam: int, topk: int,
-                 model_dir: str, device: str) -> TransliterationEngine:
+                 model_dir: str, device: str,
+                 compute_type: str = "int8") -> TransliterationEngine:
     """Construct the requested engine."""
     if name == "ct2":
         from server.engine.ct2_engine import CT2Engine
         return CT2Engine(model_dir, lang=lang, beam_width=beam, topk=topk,
-                         device=device)
+                         device=device, compute_type=compute_type)
     if name == "fairseq":
         from server.engine.fairseq_engine import FairseqEngine
         return FairseqEngine(lang=lang, beam_width=beam, topk=topk)
@@ -86,6 +87,8 @@ def main() -> None:
     parser.add_argument("--data", default=DEFAULT_DATA)
     parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--compute-type", default="int8",
+                        help="CT2 compute type: int8, int8_float32, int16, float32")
     parser.add_argument("--topk", type=int, default=5)
     parser.add_argument("--beam", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -100,7 +103,7 @@ def main() -> None:
 
     print(f"engine={args.engine} inputs={len(inputs):,} beam={args.beam} topk={args.topk}")
     engine = build_engine(args.engine, args.lang, args.beam, args.topk,
-                          args.model_dir, args.device)
+                          args.model_dir, args.device, args.compute_type)
 
     predictions: Dict[str, List[str]] = {}
     start = time.perf_counter()

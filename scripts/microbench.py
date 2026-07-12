@@ -108,14 +108,15 @@ def rss_mb() -> float:
 
 def bench_ct2(model_dir: str, device: str, intra_threads: int, words: List[str],
               iterations: int, warmup: int, beam: int, topk: int,
-              lang: str) -> Dict[str, object]:
-    """Benchmark the CTranslate2 INT8 engine."""
+              lang: str, compute_type: str = "int8") -> Dict[str, object]:
+    """Benchmark the CTranslate2 engine at a given compute type."""
     import ctranslate2
 
     rss_before = rss_mb()
     start = time.perf_counter()
     translator = ctranslate2.Translator(
-        model_dir, device=device, compute_type="int8", intra_threads=intra_threads
+        model_dir, device=device, compute_type=compute_type,
+        intra_threads=intra_threads,
     )
     cold_start_ms = (time.perf_counter() - start) * 1000.0
 
@@ -225,7 +226,6 @@ def main() -> None:
             "num_words": len(words),
             "iterations": args.iterations,
             "warmup": args.warmup,
-            "cpu_count": psutil.cpu_count(logical=True),
         },
         "engines": {},
     }

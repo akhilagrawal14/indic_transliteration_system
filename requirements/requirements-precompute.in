@@ -30,6 +30,9 @@
 #   pip install --no-deps ai4bharat-transliteration
 #   pip install pydload sacremoses pandas tqdm ujson mock tensorboardX pyarrow indic-nlp-library
 #
+#   # 5. ONNX comparison experiment (scripts/export_onnx.py, scripts/onnx_compare.py):
+#   pip install onnxruntime onnx
+#
 # Do NOT install urduhack. ai4bharat imports it unconditionally but only calls it
 # for lang_code == 'ur'. Use server.compat.stub_urduhack() instead (importing the
 # real urduhack pulls TensorFlow via urduhack.models.ner).

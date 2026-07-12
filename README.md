@@ -1,6 +1,6 @@
 # Indic Transliteration Runtime
 
-Production-grade Indic transliteration serving for Indian courtrooms. Converts Latin input (e.g. `mera`) into ranked Devanagari candidates (`मेरा`, `मीरा`, `मैरा`, ...) with p95 < 100ms at 500 concurrent users.
+A benchmarked prototype for Indic transliteration serving in Indian courtrooms. Converts Latin input (e.g. `mera`) into ranked Devanagari candidates (`मेरा`, `मीरा`, `मैरा`, ...) and meets p95 < 100ms at 500 concurrent simulated users in load tests. See the [report](report/report.md) for scope, evidence, and the remaining work to production-harden it.
 
 ---
 
@@ -24,43 +24,59 @@ Typist client
 
 **Why this works:** courtroom Hindi vocabulary is Zipfian. The top ~100k romanized inputs cover 90%+ of real lookups. Transliteration is deterministic per input. So a precomputed dictionary serves the head in sub-millisecond time, and only the tail (rare names, unusual terms) hits the model.
 
-**Why not a GPU:** at ~300 RPS of single-word character-level requests, a GPU sits at 3% utilization while costing $500-700/month. The CPU + dictionary path costs ~$150/month and handles 10x growth before needing a second instance.
+**Why not a GPU:** at ~300 RPS of single-word character-level requests, an always-on L4 sits at low single-digit utilization while costing ~$519/month per instance, and it is actually slower than one CPU core at batch size 1 (measured). The CPU + dictionary path is ~$145/month per instance ($290 for a 2-instance HA pair) and, because the dictionary absorbs growth, stays flat to ~3x and needs only a third instance at ~10x.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.10 (via conda)
-- Node.js 20 (for frontend demo)
-- Docker + Docker Compose (for containerized deployment)
-- NVIDIA GPU (for model conversion and benchmarking only, not serving)
+- Python 3.10 (via conda) for the backend
+- Node.js 20 (for the frontend demo)
+- Docker + Docker Compose (for Option A)
+- No GPU needed. Serving, precompute, eval, and load tests are all CPU-only.
 
-### Setup
-See [docs/setup.md](docs/setup.md) for the full step-by-step guide.
-
+### One-time setup (both options)
 ```bash
-# Clone and enter
-git clone <repo-url> && cd indic-xlit-runtime
-
-# Copy environment template
+git clone <repo-url> && cd indic_transliteration_system
 cp .env.example .env
 
-# Option 1: Docker (recommended)
-./run.sh docker
-
-# Option 2: Local dev
-./run.sh dev
+# Build artifacts on first run: dataset, model, CT2 conversion, dictionary,
+# and the demo's offline dictionary (~a few minutes, CPU-only).
+conda activate xlit
+bash scripts/bootstrap.sh
 ```
+See [docs/setup.md](docs/setup.md) for the full environment setup (conda env, deps).
+
+### Option A — Docker (one command)
+Builds and runs backend + frontend together:
+```bash
+docker compose up --build
+# Backend API:  http://localhost:8000
+# Demo (UI):    http://localhost:3000
+```
+
+### Option B — Local dev (two terminals)
+```bash
+# Terminal 1: backend
+conda activate xlit
+XLIT_ENGINE=ct2 uvicorn server.app:app --host 0.0.0.0 --port 8000
+
+# Terminal 2: frontend
+cd demo
+npm install       # first time only
+npm run dev       # http://localhost:3000
+```
+`./run.sh docker` and `./run.sh dev` are shortcuts for the two options above.
 
 ### Verify
 ```bash
-curl "http://localhost:8000/transliterate?word=mera&lang=hi&topk=5"
+# Backend
+curl "http://localhost:8000/transliterate?word=mera&topk=5"
 # {"input":"mera","candidates":["मेरा","मीरा","मैरा",...],"source":"dict","latency_ms":0.3}
-
-curl "http://localhost:8000/healthz"
-# {"status":"ok","engine":"ct2_int8","dict_size":85000}
+curl "http://localhost:8000/healthz"     # {"status":"ok","engine":"ct2","dict_size":52045}
 ```
+Then open **http://localhost:3000**, type romanized Hindi (e.g. `mera nyayalaya`), and pick from the ranked suggestions. If the backend is unreachable, head words still resolve from the demo's bundled offline dictionary.
 
 ---
 
@@ -85,31 +101,35 @@ indic-xlit-runtime/
 
 ## Key Results
 
-*(Fill in after benchmarking)*
+Measured on a 4-vCPU CPU instance (n2-standard-4 class). The GPU path was benchmarked separately on a GPU machine (1x NVIDIA L4) and rejected; serving is CPU-only. Full detail and methodology in the [report](report/report.md).
 
-### Latency (p50 / p95 / p99)
+### Latency
 
 | Path | p50 | p95 | p99 |
 |---|---|---|---|
-| Dictionary hit | ms | ms | ms |
-| LRU cache hit | ms | ms | ms |
-| Model (CT2 INT8, CPU) | ms | ms | ms |
-| End-to-end (mixed, 500 users) | ms | ms | ms |
+| Dictionary hit (single word) | ~0.0004 ms | ~0.001 ms | ~0.001 ms |
+| Model, CT2 INT8 CPU (single word) | 7.5 ms | 11.8 ms | 13.7 ms |
+| End-to-end, 500 users mixed (load test) | 2 ms | 12 ms | 20 ms |
+| FP32 baseline, 500 users (why quantize) | 370 ms | 6,200 ms | 9,900 ms |
 
-### Quality (Dakshina Hindi test set)
+### Quality (Dakshina Hindi test set, 4,442 inputs)
 
-| Engine | Top-1 Accuracy | Top-5 Accuracy | CER |
+| Engine | Top-1 | Top-5 | CER |
 |---|---|---|---|
-| IndicXlit FP32 (baseline) | % | % | |
-| CTranslate2 INT8 | % | % | |
-| Delta | % | % | |
+| IndicXlit FP32 (baseline) | 61.35% | 87.35% | 0.117 |
+| CTranslate2 INT8 (chosen) | 61.08% | 87.30% | 0.118 |
+| Delta | -0.27 pp | -0.05 pp | +0.001 |
 
-### Cost at Scale
+Note: benchmark-quality preservation on Dakshina, not courtroom-domain validated (see report §5).
+
+### Cost at Scale (CPU + dictionary vs always-on GPU)
 
 | Architecture | 5k DAU | 15k DAU | 50k DAU |
 |---|---|---|---|
-| CPU + dictionary (chosen) | $/mo | $/mo | $/mo |
-| Always-on GPU (rejected) | $/mo | $/mo | $/mo |
+| CPU + dictionary (chosen) | $290/mo | $290/mo | $434/mo |
+| Always-on GPU (rejected) | $1,038/mo | $1,038/mo | $1,557/mo |
+
+Figures are the recommended 2-instance HA configuration (single-instance compute is roughly half). Excludes load balancer, CDN, egress, and monitoring; see report §6.
 
 ---
 

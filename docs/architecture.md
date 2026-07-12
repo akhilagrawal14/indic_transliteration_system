@@ -11,20 +11,22 @@ IndicXlit is a fairseq transformer seq2seq model (~30M params). We need single-w
 
 ### Options Considered
 
-| Option | Pros | Cons | Measured Latency (fill in) |
+Measured single-word latency (p50 / p95, one CPU core unless noted), from `scripts/microbench.py`:
+
+| Option | Pros | Cons | Measured latency |
 |---|---|---|---|
-| Fairseq/PyTorch FP32 on CPU | Zero conversion effort, exact baseline | Python beam search loop is slow, FP32 memory footprint | ~80-150ms (too slow) |
-| PyTorch + torch.compile on CPU | Minor speedup, no conversion | Beam search stays in Python, marginal gains | ~60-120ms (still risky) |
-| **CTranslate2 INT8 on CPU** | C++ beam search, INT8 quantization, native fairseq converter, production-proven for NMT | Conversion may fail for this specific checkpoint | **~5-25ms (target)** |
-| ONNX Runtime INT8 on CPU | Broad hardware support, dynamic quantization | Must split encoder/decoder, write external beam search loop, more work for similar or worse result | ~10-40ms |
-| TensorRT on GPU | Fastest raw inference | GPU-only, wrong cost profile for this workload | ~2-5ms (but GPU cost) |
+| Fairseq/PyTorch FP32 on CPU | Zero conversion effort, exact baseline | Python beam search loop is slow, FP32 memory footprint | **73.3 / 107.8 ms** (too slow; exceeds budget) |
+| PyTorch + torch.compile on CPU | Minor speedup, no conversion | Beam search stays in Python, marginal gains | not measured (fairseq beam loop stays in Python) |
+| **CTranslate2 INT8 on CPU** | C++ beam search, INT8 quantization, native fairseq converter, production-proven for NMT | Conversion may fail for this specific checkpoint | **7.4 / 11.6 ms (chosen)** |
+| ONNX Runtime INT8 on CPU | Broad hardware support, dynamic quantization | Must split encoder/decoder, write external beam search loop, more work for worse result | **283 / 313 ms** (measured; ~37x slower than CT2, same quality) |
+| CTranslate2 INT8 on GPU (L4) | Fastest on large batches | Slower at batch=1, GPU cost/ops | 12.3 / 18.5 ms (1.7x slower than CPU here) |
 
 ### Decision
-CTranslate2 INT8 on CPU, with ONNX Runtime as fallback if conversion fails, and stock fairseq as the quality reference.
+CTranslate2 INT8 on CPU, with stock fairseq as the quality reference. ONNX Runtime was built and benchmarked (not just theorized): it matches CT2 on quality but is ~37x slower on CPU for this seq2seq, so it is kept only as a documented fallback.
 
 ### Consequences
-- Must validate conversion succeeds for this checkpoint
-- Must prove INT8 quality is within ~0.5% of FP32 baseline on Dakshina
+- Conversion validated for this checkpoint; INT8 quality delta is 0.27 pp top-1 / 0.05 pp top-5 vs FP32 (within noise)
+- The ONNX comparison (report section 4.1d) is the measured basis for the choice: same quality, far higher latency, and much higher build effort (manual encoder/decoder export + external beam search)
 
 ---
 
@@ -90,11 +92,27 @@ The obvious always-on-GPU answer is expensive, and that cost grows with every co
 | Ops burden | Standard Linux | CUDA drivers, GPU monitoring |
 
 ### Decision
-CPU serving. GPU is used only for offline precomputation and benchmarking.
+CPU serving. GPU is not used at any step.
 
 ### Consequences
-- Must benchmark the GPU path honestly and include the numbers in the report
-- The latency difference on the model path (10ms vs 3ms) is invisible to users because (a) 90%+ of requests never hit the model, and (b) the network RTT to courtrooms dwarfs both
+- Measured result is stronger than the cost argument alone: CT2 INT8 on an L4 is **1.7x slower** than one CPU core at batch=1 (p50 12.3 ms vs 7.4 ms), because kernel-launch and transfer overhead dominate for a 30M-param char-level model on ~10-character inputs. Batching would help but is unavailable (independent single-word requests).
+- **GPU is unnecessary even for precomputation.** The dictionary (52k words) builds CPU-only in ~101 s; CTranslate2 saturates the cores for the batch. The L4s stay idle for the whole project.
+- The model-path latency difference is invisible to users anyway: 90%+ of requests never hit the model, and courtroom network RTT dwarfs both.
+
+---
+
+## ADR-7: Serving Instance (n2-standard-4, AVX-512 VNNI required)
+
+### Context
+CTranslate2 INT8 inference relies on AVX-512 VNNI for its quantized kernels. GCP E2 runs on a mixed CPU pool with no AVX-512 guarantee, so it would lose most of the INT8 speedup measured here.
+
+### Decision
+Serve on **n2-standard-4** (4 vCPU, 16 GB, 30 GB disk; Cascade/Ice Lake, guaranteed AVX-512 VNNI) at $144.79/month, or **c3-standard-4** (Sapphire Rapids, fastest per core) at $149.57/month. Run **2 instances behind an HTTPS load balancer** for HA. Config: uvicorn workers = vCPU, 1 CT2 intra-op thread each (threading buys only ~8% per the microbenchmarks, so scale workers not threads).
+
+### Consequences
+- Numbers in this report were measured with the server pinned to 4 cores (`taskset -c 0-3`) to approximate this instance's CPU capacity (not a full-instance benchmark: no TLS, load balancer, or GCP scheduler quota).
+- Do not deploy on E2. Prefer N2/C3/C3D or any Cascade Lake or newer CPU.
+- A 4 vCPU instance has far more headroom than the 1x workload needs (the cache keeps the model path near ~22 RPS), which is what keeps cost flat as traffic grows.
 
 ---
 

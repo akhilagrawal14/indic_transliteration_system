@@ -8,16 +8,16 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
-      - ENGINE=${ENGINE:-ct2}
-      - DICT_PATH=/app/server/data/dictionary_hi.json
-      - MODEL_DIR=/app/models/indicxlit/ct2_int8
-      - LANG=${LANG:-hi}
-      - BEAM_WIDTH=${BEAM_WIDTH:-5}
-      - TOPK=${TOPK:-5}
-      - LRU_CACHE_SIZE=${LRU_CACHE_SIZE:-10000}
+      - XLIT_ENGINE=${XLIT_ENGINE:-ct2}
+      - XLIT_DICT_PATH=/app/server/data/dictionary_hi.json
+      - XLIT_MODEL_DIR=/app/models/indicxlit/ct2_int8
+      - XLIT_LANG=${XLIT_LANG:-hi}
+      - XLIT_BEAM_WIDTH=${XLIT_BEAM_WIDTH:-5}
+      - XLIT_TOPK=${XLIT_TOPK:-5}
+      - XLIT_LRU_CACHE_SIZE=${XLIT_LRU_CACHE_SIZE:-10000}
+      - XLIT_DEVICE=cpu
+      - XLIT_LOG_LEVEL=${XLIT_LOG_LEVEL:-info}
       - WORKERS=${WORKERS:-4}
-      - DEVICE=cpu
-      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./models:/app/models:ro
       - ./server/data:/app/server/data:ro
@@ -35,7 +35,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      # Server-side only: the frontend proxies /api/* to the backend internally
+      # (see demo/src/app/api/transliterate/route.ts). Never sent to the browser,
+      # so the backend stays private; only the frontend needs to be exposed.
+      - BACKEND_URL=http://backend:8000
     depends_on:
       backend:
         condition: service_healthy

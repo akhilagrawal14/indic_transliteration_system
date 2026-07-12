@@ -1,0 +1,73 @@
+{
+  "assumptions": {
+    "dau": 5000,
+    "session_hours": 3.0,
+    "active_fraction": 0.6,
+    "req_per_active_sec": 0.7,
+    "peak_concurrency_fraction": 0.1,
+    "derived_lookups_per_user_hour": 1512,
+    "derived_peak_rps_1x": 210,
+    "cache_hit_ratio": 0.92,
+    "model_rps_per_core": 100.0,
+    "agg_rps_per_cpu_instance": 800.0,
+    "cpu_instance": "n2-standard-4 @ $144.79/mo",
+    "gpu_instance": "g2-standard-4 @ $518.99/mo",
+    "ha_min_instances": 2
+  },
+  "excluded_costs": [
+    "HTTPS load balancer",
+    "CDN request/egress",
+    "cross-zone/region egress",
+    "monitoring/log ingestion",
+    "artifact/registry storage",
+    "sustained-use/committed-use discounts",
+    "engineering/ops overhead"
+  ],
+  "scale": [
+    {
+      "scale": "1x",
+      "dau": 5000,
+      "peak_rps": 210,
+      "model_rps": 17,
+      "cpu_instances": 2,
+      "cpu_usd_month": 289.58,
+      "gpu_instances": 2,
+      "gpu_usd_month": 1037.98,
+      "cpu_usd_per_1k_users_month": 57.92,
+      "cpu_usd_per_1M_lookups": 0.43,
+      "gpu_usd_per_1M_lookups": 1.53
+    },
+    {
+      "scale": "3x",
+      "dau": 15000,
+      "peak_rps": 630,
+      "model_rps": 50,
+      "cpu_instances": 2,
+      "cpu_usd_month": 289.58,
+      "gpu_instances": 2,
+      "gpu_usd_month": 1037.98,
+      "cpu_usd_per_1k_users_month": 19.31,
+      "cpu_usd_per_1M_lookups": 0.14,
+      "gpu_usd_per_1M_lookups": 0.51
+    },
+    {
+      "scale": "10x",
+      "dau": 50000,
+      "peak_rps": 2100,
+      "model_rps": 168,
+      "cpu_instances": 3,
+      "cpu_usd_month": 434.37,
+      "gpu_instances": 3,
+      "gpu_usd_month": 1556.97,
+      "cpu_usd_per_1k_users_month": 8.69,
+      "cpu_usd_per_1M_lookups": 0.06,
+      "gpu_usd_per_1M_lookups": 0.23
+    }
+  ],
+  "gpu_evaluation_cost": {
+    "machine": "GPU machine, 1x L4",
+    "approx_hours": 8.0,
+    "approx_usd": 5.69,
+    "note": "One-time cost to benchmark and reject the GPU path; serving is CPU-only."
+  }
+}

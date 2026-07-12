@@ -1,6 +1,6 @@
 # Environment Setup Guide
 
-Step-by-step setup for the Indic Transliteration Runtime project on a Debian-based GCP g2-standard-24 instance with 2x L4 GPUs.
+Step-by-step setup on a Debian-based Linux CPU instance. Serving, precompute, eval, and load tests are all CPU-only. A GPU machine (e.g. 1x L4) is optional and only needed to reproduce the rejected-path GPU comparison; skip every GPU/CUDA step below if you don't need that.
 
 ---
 
@@ -8,10 +8,10 @@ Step-by-step setup for the Indic Transliteration Runtime project on a Debian-bas
 
 Before starting, confirm you have:
 
-- [ ] GCP g2-standard-24 instance running (Debian 11/12)
+- [ ] A Linux CPU instance (Debian 11/12), 4+ vCPUs
 - [ ] SSH access to the instance
 - [ ] At least 100GB disk space (models + datasets + conda)
-- [ ] NVIDIA drivers installed (verify with `nvidia-smi`)
+- [ ] (Optional) NVIDIA GPU + drivers, only to reproduce the GPU comparison
 - [ ] Git installed (`sudo apt install git`)
 - [ ] OpenAI API key (optional, for LLM-as-judge eval only)
 
@@ -60,10 +60,9 @@ sudo apt install -y nodejs
 node --version  # should show v20.x
 npm --version
 
-# 1.5 Verify NVIDIA driver and CUDA
+# 1.5 (OPTIONAL, GPU comparison only) Verify NVIDIA driver and CUDA
 nvidia-smi
-# Expected: 2x NVIDIA L4, Driver 535+, CUDA 12.x
-# If missing, install: sudo apt install -y nvidia-driver-535
+# CPU-only serving does not need this; skip unless reproducing the GPU benchmark.
 ```
 
 ---
@@ -106,10 +105,12 @@ cd ~/indic-xlit-runtime
 pip install pip-tools
 
 # 3.3 Compile locked requirements (run this once; re-run if you edit requirements.in)
-pip-compile requirements.in -o requirements.txt --resolver=backtracking
+python -m piptools compile requirements/requirements.in -o requirements/requirements.txt --resolver=backtracking
 
 # 3.4 Install all dependencies
-pip install -r requirements.txt
+pip install -r requirements/requirements.txt
+# Offline eval + precompute deps (fairseq/ai4bharat) are separate; see
+# requirements/requirements-precompute.in for the install steps.
 
 # 3.5 Verify critical imports
 python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA available: {torch.cuda.is_available()}, GPUs: {torch.cuda.device_count()}')"
@@ -175,22 +176,20 @@ All evaluation and dictionary-building data goes into `eval/data/`.
 python scripts/download_data.py
 
 # 5.2 Verify downloads
-wc -l eval/data/dakshina/hi/lexicons/hi.translit.sampled.*.tsv
+wc -l eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.*.tsv
 # Should show thousands of lines per split
 
 # 5.3 Preview the format
-head -5 eval/data/dakshina/hi/lexicons/hi.translit.sampled.test.tsv
+head -5 eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.test.tsv
 # Format: native_script \t romanized \t count
 # Example: मेरा    mera    42
 
-# 5.4 Download Aksharantar word list (for dictionary precomputation)
-# This is AI4Bharat's larger transliteration dataset
-python scripts/download_aksharantar.py
-
-# 5.5 Verify
-ls -lah eval/data/aksharantar/
-wc -l eval/data/aksharantar/hi/*.txt
+# The dictionary is built from the Dakshina train lexicon + natural corpus
+# vocabulary (see server/precompute.py). Aksharantar is not required.
 ```
+
+**Shortcut:** `scripts/bootstrap.sh` runs Phases 5, 4, 6.1 and the dictionary
+precompute in order for a fresh clone.
 
 ---
 
@@ -200,12 +199,8 @@ This is where your L4 GPUs earn their keep. Conversion runs once; serving uses t
 
 ```bash
 # 6.1 Convert fairseq checkpoint to CTranslate2 INT8
-# If this fails, skip to 6.2 (ONNX fallback)
-python scripts/convert_ct2.py \
-    --model-dir models/indicxlit/fairseq_original \
-    --output-dir models/indicxlit/ct2_int8 \
-    --quantization int8 \
-    --lang hi
+# (handles the --unsafe_deserialization + lang_list + source/target-lang flags)
+python scripts/convert_ct2.py
 
 # 6.2 Verify CT2 conversion
 python -c "
@@ -215,25 +210,22 @@ print('CT2 model loaded successfully')
 print(f'Device: {translator.device}')
 "
 
-# 6.3 (FALLBACK) Convert to ONNX INT8 if CT2 fails
-python scripts/convert_onnx.py \
-    --model-dir models/indicxlit/fairseq_original \
-    --output-dir models/indicxlit/onnx_int8 \
-    --quantize int8 \
-    --lang hi
+# 6.3 (OPTIONAL) Export to ONNX for the runtime comparison experiment
+# (CT2 succeeded, so ONNX is not a serving path; this reproduces report 4.1d)
+python scripts/export_onnx.py
 
 # 6.4 Run quality check: compare FP32 vs quantized on a sample
 python eval/eval.py \
     --engine fairseq \
     --lang hi \
-    --data eval/data/dakshina/hi/lexicons/hi.translit.sampled.test.tsv \
+    --data eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.test.tsv \
     --topk 5 \
     --output eval/results/baseline_fp32.json
 
 python eval/eval.py \
     --engine ct2 \
     --lang hi \
-    --data eval/data/dakshina/hi/lexicons/hi.translit.sampled.test.tsv \
+    --data eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.test.tsv \
     --topk 5 \
     --output eval/results/ct2_int8.json
 
@@ -245,38 +237,33 @@ python eval/compare_results.py \
 
 ---
 
-## Phase 7: Dictionary Precomputation
+## Phase 7: Dictionary Precomputation (CPU only)
 
-Use the GPU to bulk-transliterate the full word list. This is the key to the architecture: precompute once, serve from memory forever.
+Bulk-transliterate the word list once, then serve from memory forever. No GPU is
+needed: CTranslate2 saturates the CPU cores for the batch, so the full ~52k-word
+dictionary builds in ~100 s.
 
 ```bash
-# 7.1 Precompute dictionary (runs on GPU, takes ~10-30 min depending on vocab size)
-CUDA_VISIBLE_DEVICES=0 python server/precompute.py \
-    --wordlist eval/data/dakshina/hi/lexicons/hi.translit.sampled.train.tsv \
-    --aksharantar eval/data/aksharantar/hi/ \
-    --lang hi \
-    --beam-width 4 \
-    --topk 5 \
-    --output server/data/dictionary_hi.json \
-    --format json
+# 7.1 Precompute dictionary (CPU; ~100 s for ~52k words)
+python server/precompute.py \
+    --model-dir models/indicxlit/ct2_int8 \
+    --lang hi --beam 5 --topk 5 \
+    --output server/data/dictionary_hi.json
 
 # 7.2 Check dictionary size and sample entries
 python -c "
-import json
-with open('server/data/dictionary_hi.json') as f:
-    d = json.load(f)
+import json, os
+d = json.load(open('server/data/dictionary_hi.json'))
 print(f'Dictionary entries: {len(d)}')
-print(f'File size: {__import__(\"os\").path.getsize(\"server/data/dictionary_hi.json\") / 1024 / 1024:.1f} MB')
-# Show a few entries
+print(f'File size: {os.path.getsize(\"server/data/dictionary_hi.json\")/1024/1024:.1f} MB')
 for k in list(d.keys())[:5]:
     print(f'  {k} -> {d[k]}')
 "
-
-# 7.3 Build compressed trie (marisa-trie) for memory-efficient serving
-python server/build_trie.py \
-    --input server/data/dictionary_hi.json \
-    --output server/data/dictionary_hi.marisa
 ```
+
+Expected: ~52,045 entries, ~6.5 MB. The server loads this JSON into an in-memory
+dict at startup (marisa-trie is available as a memory optimization but is
+unnecessary at this size).
 
 ---
 
@@ -368,38 +355,34 @@ curl http://localhost:8000/transliterate?word=mera&lang=hi&topk=5
 
 ---
 
-## Phase 12: Load Testing
+## Phase 12: Load Testing (CPU only)
+
+Pin the server to 4 cores so numbers map to an n2-standard-4, and run Locust on
+the remaining cores so the load generator does not contaminate server latency
+(isolation on a single box; a separate VM is fine too).
 
 ```bash
-# 12.1 Start the server (if not running)
-# In terminal 1:
-uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 4
+# 12.1 Start the server pinned to cores 0-3 (terminal 1)
+XLIT_ENGINE=ct2 taskset -c 0-3 uvicorn server.app:app \
+    --host 127.0.0.1 --port 8000 --workers 4
 
-# 12.2 Run Locust (in a separate terminal, ideally a separate machine)
-cd ~/indic-xlit-runtime/loadtest
-locust -f locustfile.py --host http://localhost:8000
+# 12.2 Scenario 2 (target scale) on the remaining cores (terminal 2)
+taskset -c 4-23 locust -f loadtest/locustfile.py --host http://127.0.0.1:8000 \
+    --users 500 --spawn-rate 50 --run-time 300s --headless \
+    --csv loadtest/results/scenario2_int8
 
-# 12.3 Open Locust UI at http://localhost:8089
-# Configure: 500 users, spawn rate 50/s, run for 10 minutes
+# 12.3 FP32 comparison: restart the server with XLIT_ENGINE=fairseq, rerun 12.2
+#      into loadtest/results/scenario2_fp32
 
-# 12.4 Or run headless for the report numbers:
-locust -f locustfile.py \
-    --host http://localhost:8000 \
-    --users 500 \
-    --spawn-rate 50 \
-    --run-time 600s \
-    --headless \
-    --csv loadtest/results/run_500users
+# 12.4 Scenario 4 (cache-off ablation): restart with the dictionary disabled
+XLIT_ENGINE=ct2 XLIT_DICT_PATH="" XLIT_LRU_CACHE_SIZE=0 taskset -c 0-3 \
+    uvicorn server.app:app --host 127.0.0.1 --port 8000 --workers 4
+taskset -c 4-23 locust -f loadtest/locustfile.py --host http://127.0.0.1:8000 \
+    --users 500 --spawn-rate 50 --run-time 180s --headless \
+    --csv loadtest/results/scenario4_cacheoff_int8
 
-# 12.5 GPU comparison run (start server on GPU for this run only)
-DEVICE=cuda uvicorn server.app:app --host 0.0.0.0 --port 8001 --workers 1
-locust -f locustfile.py \
-    --host http://localhost:8001 \
-    --users 500 \
-    --spawn-rate 50 \
-    --run-time 300s \
-    --headless \
-    --csv loadtest/results/run_500users_gpu
+# Server-side hit ratio and per-worker latency are at GET /metrics.
+# No GPU run is needed: the microbenchmarks already show the L4 is slower here.
 ```
 
 ---
@@ -448,7 +431,7 @@ cd demo && npm run dev
 docker compose up --build
 
 # Run eval
-python eval/eval.py --engine ct2 --lang hi --data eval/data/dakshina/hi/lexicons/hi.translit.sampled.test.tsv
+python eval/eval.py --engine ct2 --lang hi --data eval/data/dakshina_dataset_v1.0/hi/lexicons/hi.translit.sampled.test.tsv
 
 # Run load test
 cd loadtest && locust -f locustfile.py --host http://localhost:8000

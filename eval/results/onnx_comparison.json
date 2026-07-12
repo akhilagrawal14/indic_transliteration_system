@@ -1,0 +1,52 @@
+{
+  "config": {
+    "beam": 5,
+    "topk": 5,
+    "num_words": 150,
+    "eval_inputs": 1000
+  },
+  "rows": [
+    {
+      "engine": "ct2_int8",
+      "n": 300,
+      "mean_ms": 8.069,
+      "p50_ms": 7.609,
+      "p95_ms": 11.836,
+      "p99_ms": 13.72,
+      "min_ms": 4.223,
+      "max_ms": 14.783,
+      "throughput_qps": 123.9,
+      "top1_accuracy_pct": 58.9,
+      "topk_accuracy_pct": 86.7,
+      "cer_top1": 0.1279
+    },
+    {
+      "engine": "onnx_fp32",
+      "n": 300,
+      "mean_ms": 481.167,
+      "p50_ms": 490.143,
+      "p95_ms": 545.824,
+      "p99_ms": 579.814,
+      "min_ms": 115.381,
+      "max_ms": 596.219,
+      "throughput_qps": 2.1,
+      "top1_accuracy_pct": 59.1,
+      "topk_accuracy_pct": 87.9,
+      "cer_top1": 0.1361
+    },
+    {
+      "engine": "onnx_int8_dynamic",
+      "n": 300,
+      "mean_ms": 276.121,
+      "p50_ms": 283.005,
+      "p95_ms": 312.894,
+      "p99_ms": 326.181,
+      "min_ms": 66.415,
+      "max_ms": 334.723,
+      "throughput_qps": 3.6,
+      "top1_accuracy_pct": 59.3,
+      "topk_accuracy_pct": 87.7,
+      "cer_top1": 0.1366
+    }
+  ]
+}

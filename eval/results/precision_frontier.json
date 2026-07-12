@@ -1,0 +1,75 @@
+{
+  "sweep": "precision",
+  "config": {
+    "num_words": 200,
+    "iterations": 500,
+    "topk": 5,
+    "eval_inputs": 4442
+  },
+  "rows": [
+    {
+      "compute_type": "int8",
+      "beam": 5,
+      "eval_k": 5,
+      "n": 500,
+      "mean_ms": 8.011,
+      "p50_ms": 7.545,
+      "p95_ms": 11.859,
+      "p99_ms": 13.808,
+      "min_ms": 4.281,
+      "max_ms": 14.491,
+      "throughput_qps": 124.8,
+      "top1_accuracy_pct": 61.08,
+      "topk_accuracy_pct": 87.3,
+      "cer_top1": 0.1183
+    },
+    {
+      "compute_type": "int8_float32",
+      "beam": 5,
+      "eval_k": 5,
+      "n": 500,
+      "mean_ms": 7.99,
+      "p50_ms": 7.519,
+      "p95_ms": 11.837,
+      "p99_ms": 13.768,
+      "min_ms": 4.247,
+      "max_ms": 14.379,
+      "throughput_qps": 125.2,
+      "top1_accuracy_pct": 61.08,
+      "topk_accuracy_pct": 87.3,
+      "cer_top1": 0.1183
+    },
+    {
+      "compute_type": "int16",
+      "beam": 5,
+      "eval_k": 5,
+      "n": 500,
+      "mean_ms": 11.988,
+      "p50_ms": 11.31,
+      "p95_ms": 17.433,
+      "p99_ms": 20.528,
+      "min_ms": 6.507,
+      "max_ms": 21.155,
+      "throughput_qps": 83.4,
+      "top1_accuracy_pct": 61.23,
+      "topk_accuracy_pct": 87.3,
+      "cer_top1": 0.1174
+    },
+    {
+      "compute_type": "float32",
+      "beam": 5,
+      "eval_k": 5,
+      "n": 500,
+      "mean_ms": 19.788,
+      "p50_ms": 19.376,
+      "p95_ms": 27.288,
+      "p99_ms": 30.393,
+      "min_ms": 11.763,
+      "max_ms": 34.085,
+      "throughput_qps": 50.5,
+      "top1_accuracy_pct": 61.17,
+      "topk_accuracy_pct": 87.3,
+      "cer_top1": 0.1176
+    }
+  ]
+}

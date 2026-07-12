@@ -88,7 +88,7 @@ Expected: latency jumps 10-50x for dictionary-eligible words. This delta is the 
 | Server config | CTranslate2 on GPU (or fairseq on GPU), dictionary ON |
 | Metrics to capture | Same as Scenario 2, plus GPU utilization (nvidia-smi) |
 
-Expected: latency is marginally better than CPU (model path ~3ms vs ~15ms), but dictionary-hit latency is identical, so the end-to-end p95 is barely different. GPU util is <5%. This proves the GPU adds cost with no meaningful user-facing gain.
+Measured result (report section 4.1): CT2 INT8 on the L4 is actually **slower** than one CPU core at batch size 1 (p50 12.3 ms vs 7.4 ms), because kernel-launch and transfer overhead dominate for a tiny char-level model with no batching. Combined with a 344 ms cold start and 5 to 7x the cost, the GPU adds cost with no user-facing gain, so this scenario was not run under load; the microbenchmark already settles it.
 
 ---
 
@@ -119,6 +119,9 @@ locust -f locustfile.py \
 
 ## Important: Test Isolation
 
-- Run the Locust load generator on a **separate machine** from the server. Running both on the same instance means Locust's CPU usage contaminates the server's latency numbers
-- On the GCP g2-standard-24 instance: run the server on one terminal, Locust on a separate small VM or your local machine pointing at the server's external IP
-- Record the hardware specs of both machines in the results
+The load generator must not contaminate the server's latency numbers. Two ways:
+
+- **Separate machine (ideal):** run Locust on a different VM or your laptop, pointing at the server's IP.
+- **Core pinning (used here):** pin the server to 4 cores (`taskset -c 0-3`, 4 workers) and run Locust on separate cores or a separate host so it never competes with the server. Confining the server to 4 vCPUs also makes the numbers approximate an n2-standard-4. See `docs/setup.md` Phase 12 for the exact commands.
+
+Record the hardware specs and the pinning in the results. Both the INT8 and FP32 engines are load-tested (Scenario 2); the FP32 run demonstrates why quantization is required under load.

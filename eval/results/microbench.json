@@ -4,8 +4,7 @@
     "topk": 5,
     "num_words": 200,
     "iterations": 500,
-    "warmup": 20,
-    "cpu_count": 24
+    "warmup": 20
   },
   "engines": {
     "dictionary": {
