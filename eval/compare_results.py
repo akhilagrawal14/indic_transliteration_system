@@ -42,7 +42,6 @@ def main() -> None:
 
     # Where the top-1 changed, did accuracy move?
     regressions: List[Dict[str, object]] = []
-    improvements: List[Dict[str, object]] = []
     for w in shared:
         if bp[w][:1] == cp[w][:1]:
             continue

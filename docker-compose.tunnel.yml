@@ -1,0 +1,22 @@
+# Opt-in public exposure via a Cloudflare *quick* tunnel. ADDITIVE overlay: the
+# base docker-compose.yml is untouched, so `docker compose up` stays 100% local.
+#
+# Only the frontend (port 3000) is exposed. The backend (8000) stays private on
+# the compose network, reached server-side by the Next proxy — same as local.
+#
+# Start (from repo root):
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+# Get the public URL:
+#   docker compose logs tunnel | grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com'
+# Stop just the tunnel (leave the app running):
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml stop tunnel
+#
+# Note: the quick-tunnel URL is ephemeral (changes every restart). For a stable
+# URL on your own domain, use a NAMED tunnel instead (see docs/setup.md).
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://frontend:3000
+    depends_on:
+      - frontend
+    restart: unless-stopped

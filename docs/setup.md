@@ -261,9 +261,9 @@ for k in list(d.keys())[:5]:
 "
 ```
 
-Expected: ~52,045 entries, ~6.5 MB. The server loads this JSON into an in-memory
-dict at startup (marisa-trie is available as a memory optimization but is
-unnecessary at this size).
+Expected: ~52,045 entries, ~6.8 MB. The server loads this JSON into an in-memory
+dict at startup (a plain dict is more than adequate at this size; a trie would be
+a needless dependency).
 
 ---
 
@@ -353,6 +353,64 @@ docker compose up --build
 # 11.2 Verify
 curl http://localhost:8000/transliterate?word=mera&lang=hi&topk=5
 ```
+
+---
+
+## Phase 11b: Public Demo via Cloudflare Tunnel (optional)
+
+Expose the running demo to the internet **without changing the local setup**. Only
+the frontend (3000) is published; the backend (8000) stays private behind the Next
+proxy — so there is no code change, just an operational overlay.
+
+**Option A — quick tunnel in tmux (host binary, ephemeral URL, zero config):**
+
+```bash
+# One-time: install cloudflared (Debian/Ubuntu x86_64)
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+  -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared
+
+# 1. Start the app locally as usual (unchanged)
+docker compose up -d --build
+
+# 2. Run the tunnel in a detachable tmux session
+tmux new -s tunnel
+cloudflared tunnel --url http://localhost:3000
+#   -> prints  https://<random>.trycloudflare.com   (open it from anywhere)
+#   detach: Ctrl-b then d      reattach: tmux attach -t tunnel
+#   stop:   tmux kill-session -t tunnel
+```
+
+**Option B — same thing as an opt-in Docker service (no host binary):**
+
+```bash
+# Base `docker compose up` stays local; this overlay adds a cloudflared container.
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+docker compose logs tunnel | grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com'
+```
+
+**Option C — stable URL on your own domain (named tunnel):**
+
+```bash
+cloudflared tunnel login                       # authorize a Cloudflare-managed domain
+cloudflared tunnel create xlit-demo            # writes ~/.cloudflared/<UUID>.json
+cloudflared tunnel route dns xlit-demo demo.example.com
+# ~/.cloudflared/config.yml:
+#   tunnel: xlit-demo
+#   credentials-file: /root/.cloudflared/<UUID>.json
+#   ingress:
+#     - hostname: demo.example.com
+#       service: http://localhost:3000
+#     - service: http_status:404
+tmux new -s tunnel 'cloudflared tunnel run xlit-demo'   # persistent, custom URL
+```
+
+Notes:
+- **Never** expose port 8000. The whole point of the same-origin proxy
+  (`demo/src/app/api/transliterate/route.ts`) is that only the frontend is public.
+- No `next.config.js` change is needed: all browser requests are relative, and
+  `next start` serves any Host, so the app works on any tunnel domain.
+- Over a tunnel the browser↔frontend leg is real internet latency; the status-bar
+  breakdown (round-trip vs backend vs network) makes that visible.
 
 ---
 

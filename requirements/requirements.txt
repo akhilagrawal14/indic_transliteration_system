@@ -84,8 +84,6 @@ jiter==0.16.0
     # via openai
 locust==2.45.0
     # via -r requirements/requirements.in
-marisa-trie==1.4.1
-    # via -r requirements/requirements.in
 markupsafe==3.0.3
     # via
     #   flask

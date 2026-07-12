@@ -28,9 +28,9 @@ from collections import deque
 from contextlib import asynccontextmanager
 from typing import Deque, Dict
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from server.config import get_settings
 from server.dictionary import DictionaryCache
@@ -111,12 +111,52 @@ def _record(source: str, elapsed_ms: float) -> None:
         _latencies.append(elapsed_ms)
 
 
-@app.get("/transliterate")
+class TransliterationResponse(BaseModel):
+    input: str
+    candidates: list[str]
+    source: str
+    latency_ms: float
+
+
+class LiveResponse(BaseModel):
+    status: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    engine: str
+    dict_size: int
+
+
+class HitRatio(BaseModel):
+    # `dict_` avoids shadowing BaseModel.dict; serialized as "dict" via alias so the
+    # JSON shape is unchanged.
+    model_config = ConfigDict(populate_by_name=True)
+    dict_: float = Field(alias="dict")
+    cache: float
+    model: float
+
+
+class LatencyStats(BaseModel):
+    p50: float
+    p95: float
+    p99: float
+    samples: int
+
+
+class MetricsResponse(BaseModel):
+    counts: Dict[str, int]
+    hit_ratio: HitRatio
+    latency_ms: LatencyStats
+
+
+@app.get("/transliterate", response_model=TransliterationResponse)
 def transliterate(
+    response: Response,
     word: str = Query(..., min_length=1, max_length=64),
     lang: str = Query(default=None),
     topk: int = Query(default=None, ge=1, le=settings.topk),
-) -> JSONResponse:
+) -> TransliterationResponse:
     """Return ranked Indic candidates for a romanized word.
 
     API contract: `word` is a single *normalized token* — latin letters only,
@@ -167,37 +207,33 @@ def transliterate(
     elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
     _record(source, elapsed_ms)
 
-    return JSONResponse(
-        {
-            "input": word,
-            "candidates": candidates[:k],
-            "source": source,
-            "latency_ms": elapsed_ms,
-        },
-        headers={"Cache-Control": "no-store"},
+    # Correctness relies on the process-local + client LRUs, not external caches.
+    response.headers["Cache-Control"] = "no-store"
+    return TransliterationResponse(
+        input=word, candidates=candidates[:k], source=source, latency_ms=elapsed_ms,
     )
 
 
-@app.get("/livez")
-def livez() -> Dict[str, str]:
+@app.get("/livez", response_model=LiveResponse)
+def livez() -> LiveResponse:
     """Liveness: the process and event loop are up. Does not touch the model or
     dictionary, so it stays ok during startup and never restarts a healthy worker
     that is merely still loading. Use this for the orchestrator's liveness probe."""
-    return {"status": "ok"}
+    return LiveResponse(status="ok")
 
 
-@app.get("/healthz")
-def healthz() -> Dict[str, object]:
+@app.get("/healthz", response_model=HealthResponse)
+def healthz() -> HealthResponse:
     """Readiness: ok only once the dictionary and engine have finished loading.
     Returns 503 during startup so a load balancer holds traffic until the worker
     can actually serve. Use this for the readiness probe."""
     if _cache is None or _engine is None:
         raise HTTPException(status_code=503, detail="starting up")
-    return {"status": "ok", "engine": settings.engine, "dict_size": _cache.size}
+    return HealthResponse(status="ok", engine=settings.engine, dict_size=_cache.size)
 
 
-@app.get("/metrics")
-def metrics() -> Dict[str, object]:
+@app.get("/metrics", response_model=MetricsResponse)
+def metrics() -> MetricsResponse:
     """Request counts, hit ratios, and running latency percentiles (one worker)."""
     with _metrics_lock:
         counts = dict(_counts)
@@ -211,13 +247,14 @@ def metrics() -> Dict[str, object]:
         idx = min(len(samples) - 1, int(p / 100.0 * len(samples)))
         return round(samples[idx], 3)
 
-    return {
-        "counts": counts,
-        "hit_ratio": {
-            "dict": round(counts["dict"] / total, 4),
-            "cache": round(counts["cache"] / total, 4),
-            "model": round(counts["model"] / total, 4),
-        },
-        "latency_ms": {"p50": pct(50), "p95": pct(95), "p99": pct(99),
-                       "samples": len(samples)},
-    }
+    return MetricsResponse(
+        counts=counts,
+        hit_ratio=HitRatio(
+            dict_=round(counts["dict"] / total, 4),
+            cache=round(counts["cache"] / total, 4),
+            model=round(counts["model"] / total, 4),
+        ),
+        latency_ms=LatencyStats(
+            p50=pct(50), p95=pct(95), p99=pct(99), samples=len(samples),
+        ),
+    )

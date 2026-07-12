@@ -13,7 +13,7 @@ Typist client
   |
   +-- (2) GET /transliterate?word=mera&lang=hi&topk=5
            |
-           +-- (2a) Dictionary lookup: precomputed top-100k        [<1ms]
+           +-- (2a) Dictionary lookup: precomputed ~52k             [<1ms]
            |        romanized -> candidates map (in-memory)
            |
            +-- (2b) Hot LRU cache of recent model misses           [<1ms]
@@ -22,7 +22,7 @@ Typist client
                     (writes result back into 2b)
 ```
 
-**Why this works:** courtroom Hindi vocabulary is Zipfian. The top ~100k romanized inputs cover 90%+ of real lookups. Transliteration is deterministic per input. So a precomputed dictionary serves the head in sub-millisecond time, and only the tail (rare names, unusual terms) hits the model.
+**Why this works:** natural romanized Hindi is Zipfian. The ~52k precomputed romanized inputs cover ~90% of real lookups (measured 89.5% held-out on Dakshina natural text; courtroom-domain coverage is an unvalidated assumption — see report §1.3). Transliteration is deterministic per input. So a precomputed dictionary serves the head in sub-millisecond time, and only the tail (rare names, unusual terms) hits the model.
 
 **Why not a GPU:** at ~300 RPS of single-word character-level requests, an always-on L4 sits at low single-digit utilization while costing ~$519/month per instance, and it is actually slower than one CPU core at batch size 1 (measured). The CPU + dictionary path is ~$145/month per instance ($290 for a 2-instance HA pair) and, because the dictionary absorbs growth, stays flat to ~3x and needs only a third instance at ~10x.
 
@@ -150,6 +150,10 @@ Figures are the recommended 2-instance HA configuration (single-instance compute
 - **Load Testing:** Locust
 - **Containerization:** Docker, Docker Compose
 - **Model:** AI4Bharat IndicXlit (fairseq transformer, INT8 quantized)
+
+## link of demo hosted URL
+
+https://logs-coaching-hills-hwy.trycloudflare.com 
 
 ---
 

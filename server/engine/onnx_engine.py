@@ -11,7 +11,6 @@ upper bound; a production ONNX path would add caching or use ORT's BeamSearch op
 """
 
 import json
-import os
 from typing import List
 
 import numpy as np

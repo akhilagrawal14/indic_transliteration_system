@@ -94,3 +94,11 @@ def test_metrics_shape(client):
     client.get("/transliterate", params={"word": "mera"})
     body = client.get("/metrics").json()
     assert "counts" in body and "hit_ratio" in body and "latency_ms" in body
+    # hit_ratio serializes with the "dict" key (aliased around BaseModel.dict).
+    assert set(body["hit_ratio"]) == {"dict", "cache", "model"}
+
+
+def test_cache_control_no_store(client):
+    # Correctness relies on the app LRUs, not external HTTP caches (ADR-3, option b).
+    r = client.get("/transliterate", params={"word": "mera"})
+    assert r.headers["cache-control"] == "no-store"

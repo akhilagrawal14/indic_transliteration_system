@@ -308,6 +308,12 @@ export default function Page() {
       return;
     }
     if (!sugg) return;
+    // Number keys pick the ranked candidate directly (1 = first, like an IME). Only
+    // active while the popover is open, so digits type normally otherwise.
+    if (ev.key >= "1" && ev.key <= "9") {
+      const idx = parseInt(ev.key, 10) - 1;
+      if (idx < sugg.candidates.length) { ev.preventDefault(); accept(sugg.candidates[idx]); return; }
+    }
     if (ev.key === "ArrowDown") { ev.preventDefault(); setActive((a) => Math.min(a + 1, sugg.candidates.length - 1)); }
     else if (ev.key === "ArrowUp") { ev.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
     else if (ev.key === "Enter") { ev.preventDefault(); accept(sugg.candidates[active]); }
@@ -335,8 +341,10 @@ export default function Page() {
         <div>
           <h1>Courtroom notepad</h1>
           <p className="sub">
-            Type romanized Hindi; pick from the popover under the word. To fix a
-            word, select it and choose again. Save as a .txt file.
+            Type romanized Hindi; pick from the popover under the word — press
+            <b> 1–5</b> for that candidate, or <b>Enter</b>/<b>Tab</b> for the
+            highlighted one. To fix a word, select it and choose again. Save as a
+            .txt file.
           </p>
         </div>
         <div className="tools">
