@@ -79,7 +79,13 @@ A ~52k-entry dictionary serves **89.5% of lookups by volume** while covering onl
 
 ### 2.2 Why CPU + Dictionary
 
-*(Write the narrative argument here using your own benchmark data)*
+The choice is CPU serving with a dictionary-first path, and three measured facts make it rather than cost intuition alone:
+
+- **The latency budget is met on CPU with margin.** CT2 INT8 on a single core is p50 **7.39 ms** / p95 **11.64 ms** (§4.1) against a p95 < 100 ms bar. Even with the dictionary switched off — every request hitting the model — the quantized CPU path sustains **390 RPS at p95 55 ms** (§4.3). So the quantized model alone already clears the budget; GPU-class latency buys nothing the requirement needs (and §2.3 shows the GPU is actually *slower* here).
+- **The dictionary collapses the compute, so capacity and cost scale sublinearly.** Transliteration is deterministic per input and natural text is Zipfian, so a precomputed ~52k head dictionary serves **~89.5%** of lookups at ~0.4 µs (§1.3), shrinking the model path to ~8-11% of traffic. Measured, this is decisive: the same 4-core box that saturates at **~400 model-RPS** with the cache off serves **≥782 RPS at only ~1.3 cores** with it on (§4.3). That is what keeps one small box ahead of thousands of RPS and holds cost flat to ~3x scale (§6).
+- **Operational simplicity.** No CUDA drivers, a 26 ms cold start, 29 MB RSS; the deployable artifact is a 13 MB INT8 model plus a JSON dictionary that loads in ~100 ms. Fewer moving parts than any GPU or external-cache option in §2.1.
+
+In short: the dictionary is the load-bearing decision and INT8-on-CPU is what makes the remaining tail cheap and fast enough — a combination that is both faster and ~3.6x cheaper per lookup than the always-on GPU alternative (§6.3).
 
 ### 2.3 Why Not GPU
 
@@ -102,7 +108,7 @@ So the GPU case collapses on three axes at once:
 
 The GPU is not needed anywhere in this project, including dictionary precomputation: that is a batch job, but CTranslate2 saturates the CPU cores for it and builds the full ~52k-word dictionary in ~100 s (section 3.2), so no GPU is used. The L4 appears only as the *rejected* option we benchmarked to make this decision quantitative.
 
-*(Pending: measured GPU utilization at target load and $/1M lookups, in section 6.)*
+Both cost angles confirm it: at the ~32 model-path RPS this workload puts on a box an always-on L4 sits at low single-digit utilization (massive waste), and per §6.3 the CPU path is **~3.6x cheaper per 1M lookups** at every scale ($0.43 vs $1.54 at 1x, falling to $0.06 vs $0.23 at 10x).
 
 ---
 
