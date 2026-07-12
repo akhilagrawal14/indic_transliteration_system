@@ -89,7 +89,7 @@ A GPU is the obvious first reach for this workload. I benchmarked it on an L4 ra
 | Cold start | **26 ms** | 344 ms |
 | Process RSS | **29 MB** | 176 MB |
 
-The GPU is **1.7x slower at p50**. The reason is structural, not a tuning failure: a request is one word of ~10 characters through a 30M-parameter character-level transformer. The arithmetic is negligible, so per-call kernel launch and host-device transfer overhead dominate. GPUs recover this cost through batching, but batching is unavailable here. Requests arrive independently from separate typists, so forming a batch means holding requests in a queue, spending the exact latency budget we are trying to protect.
+The GPU is **1.7x slower at p50**. The reason is structural, not a tuning failure: a request is one word of ~10 characters through an 11.5M-parameter character-level transformer. The arithmetic is negligible, so per-call kernel launch and host-device transfer overhead dominate. GPUs recover this cost through batching, but batching is unavailable here. Requests arrive independently from separate typists, so forming a batch means holding requests in a queue, spending the exact latency budget we are trying to protect.
 
 So the GPU case collapses on three axes at once:
 
@@ -107,8 +107,8 @@ The GPU is not needed anywhere in this project, including dictionary precomputat
 
 ### 3.1 Model Runtime
 
-- Base model: AI4Bharat IndicXlit (fairseq transformer, ~30M params, 132 MB FP32 checkpoint)
-- Serving engine: CTranslate2 INT8 on CPU, **13 MB** after conversion (10.2x smaller)
+- Base model: AI4Bharat IndicXlit (fairseq transformer seq2seq, **~11.5M params** — verified 11,487,748). The 132 MB `.pt` is a *training* checkpoint, not inference weights: ~44 MB of fp32 weights plus ~88 MB of Adam optimizer state (two momentum buffers per parameter), which inference discards.
+- Serving engine: CTranslate2 INT8 on CPU, **13 MB** after conversion — ~3.5x smaller than the fp32 weights (~46 MB), ~10x smaller than the full training checkpoint
 - Quality reference: stock fairseq `XlitEngine` FP32
 
 **Conversion notes.** IndicXlit is a *multilingual* fairseq model (`translation_multi_simple_epoch`), which makes the CTranslate2 conversion non-obvious. Three things were required and none are in the documentation:
@@ -178,7 +178,7 @@ Four results drive every decision in this report:
 
 1. **Quantization is not optional, it is the whole game.** The stock fairseq FP32 engine has a p95 of **107.8 ms** for a single word. It exceeds the entire 100 ms end-to-end budget before a single network hop is added. CTranslate2 INT8 cuts p50 by **9.9x** (73.34 to 7.39 ms) and p95 by **9.3x**.
 
-2. **The GPU is slower than the CPU for this workload.** CT2 INT8 on an L4 has a p50 of 12.33 ms against 7.39 ms on one CPU core: the GPU is **1.7x slower**. At batch size 1 on ~10-character sequences, kernel launch and host-device transfer overhead dominate the arithmetic, which is trivial for a 30M-parameter char-level model. The GPU also carries a 344 ms cold start against 26 ms. This turns the GPU rejection from an economic argument into a *performance* one: it costs 5 to 10x more and it is measurably worse on the metric that matters. (A GPU would win on large batches, but batching is not available here: requests are single words arriving independently, and adding a batching window would spend the very latency budget we are protecting.)
+2. **The GPU is slower than the CPU for this workload.** CT2 INT8 on an L4 has a p50 of 12.33 ms against 7.39 ms on one CPU core: the GPU is **1.7x slower**. At batch size 1 on ~10-character sequences, kernel launch and host-device transfer overhead dominate the arithmetic, which is trivial for an 11.5M-parameter char-level model. The GPU also carries a 344 ms cold start against 26 ms. This turns the GPU rejection from an economic argument into a *performance* one: it costs 5 to 10x more and it is measurably worse on the metric that matters. (A GPU would win on large batches, but batching is not available here: requests are single words arriving independently, and adding a batching window would spend the very latency budget we are protecting.)
 
 3. **Threading buys almost nothing.** Going from 1 to 24 CPU threads improves p50 by only 8% (7.39 to 6.82 ms). The model is too small to parallelize within a request. The correct configuration is therefore **1 intra-op thread per worker with many workers**, which maximizes throughput per box rather than minimizing single-request latency. This is what makes the CPU sizing so favorable.
 
@@ -241,7 +241,7 @@ A reasonable question is whether a modern high-throughput serving engine (vLLM, 
 
 This workload is the opposite on every axis:
 
-- **Model shape.** IndicXlit is a **30M-parameter encoder–decoder (seq2seq) character-level transformer**, not a decoder-only LLM. vLLM and TGI do not serve arbitrary fairseq NMT seq2seq models; adopting one would mean re-implementing the architecture in their supported model set first.
+- **Model shape.** IndicXlit is an **11.5M-parameter encoder–decoder (seq2seq) character-level transformer**, not a decoder-only LLM. vLLM and TGI do not serve arbitrary fairseq NMT seq2seq models; adopting one would mean re-implementing the architecture in their supported model set first.
 - **Request shape.** One request is a single ~10-character word producing ~10 output characters. The arithmetic is trivial; per-call *overhead* dominates. That is exactly why the L4 GPU is 1.7x **slower** than one CPU core here (§4.1), and why the Python-driven ONNX path is ~37x slower than CT2 (§4.1d). A heavier Python scheduler (vLLM's) would land in the same regime, not CT2's.
 - **Batching is unavailable.** Continuous batching — the main vLLM throughput lever — requires a queue of concurrent requests. Ours arrive independently from separate typists, and holding a batching window would spend the very latency budget we are protecting (§2.3).
 - **CT2 already is the specialized runtime.** CTranslate2 is purpose-built for transformer-NMT decoding with fused C++ kernels and a native C++ beam search, and measures **7.39 ms p50 on one CPU core** (§4.1). Threading past one intra-op thread buys only ~8% (§4.1, point 3), so there is little single-request headroom left to chase.

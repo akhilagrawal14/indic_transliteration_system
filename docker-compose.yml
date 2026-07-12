@@ -5,8 +5,13 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
+    # Bind to localhost only: the backend is private by design (the frontend
+    # reaches it over the compose network as `backend:8000`, and the public
+    # tunnel exposes only the frontend). Publishing on 0.0.0.0 would make it
+    # directly reachable on a public VM's interfaces, bypassing the proxy.
+    # Local same-host `curl 127.0.0.1:8000` and SSH port-forwards still work.
     ports:
-      - "${PORT:-8000}:8000"
+      - "127.0.0.1:${PORT:-8000}:8000"
     environment:
       - XLIT_ENGINE=${XLIT_ENGINE:-ct2}
       - XLIT_DICT_PATH=/app/server/data/dictionary_hi.json

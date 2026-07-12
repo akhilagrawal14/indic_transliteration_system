@@ -220,13 +220,17 @@ export default function Page() {
   // Show suggestions for the latin word at the caret (instant if prefetched).
   // Reads the live textarea value (not the `text` state, which lags one keystroke
   // behind inside a deferred timer, e.g. searching "rah" while you typed "rahe").
-  const showForCaret = useCallback(async () => {
+  // `explicit` = the user directly asked (pressed Tab). Auto-suggest (typing pause,
+  // caret moves) needs >=2 letters so single keystrokes don't pop noisy popovers;
+  // an explicit Tab relaxes that to 1 so single-character lookups work on demand.
+  const showForCaret = useCallback(async (explicit = false) => {
     const el = ta.current;
     if (!el) return;
     if (el.selectionStart !== el.selectionEnd) return; // a range: handled elsewhere
     const value = el.value;
     const w = wordAtCursor(value, el.selectionStart);
-    if (!w || w.word.length < 2 || !isLatin(w.word)) {
+    const minLen = explicit ? 1 : 2;
+    if (!w || w.word.length < minLen || !isLatin(w.word)) {
       setSugg(null);
       return;
     }
@@ -304,7 +308,7 @@ export default function Page() {
       ev.preventDefault();
       if (typeTimer.current) clearTimeout(typeTimer.current);
       if (sugg) accept(sugg.candidates[active]);
-      else showForCaret();
+      else showForCaret(true); // explicit: allow single-character lookups on Tab
       return;
     }
     if (!sugg) return;

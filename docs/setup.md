@@ -291,7 +291,7 @@ python scripts/microbench.py --print-table eval/results/microbench.json
 # | ct2 INT8       | GPU-L4 | ~12.3    | ~18.5    | ~21.6    |  # slower than CPU at batch=1
 # | dict lookup    | CPU    | ~0.01    | ~0.02    | ~0.03    |
 # Note: the L4 GPU is 1.7x SLOWER than one CPU core at batch=1 (kernel-launch/transfer
-# overhead dominates a 30M-param char model on ~10-char inputs). GPU is not used.
+# overhead dominates an 11.5M-param char model on ~10-char inputs). GPU is not used.
 ```
 
 ---
@@ -314,7 +314,7 @@ curl "http://localhost:8000/transliterate?word=mera&lang=hi&topk=5" | jq .
 # }
 
 curl "http://localhost:8000/healthz"
-# Expected: {"status": "ok", "engine": "ct2_int8", "dict_size": 85000}
+# Expected: {"status": "ok", "engine": "ct2", "dict_size": 52045}
 ```
 
 ---
@@ -407,6 +407,9 @@ tmux new -s tunnel 'cloudflared tunnel run xlit-demo'   # persistent, custom URL
 Notes:
 - **Never** expose port 8000. The whole point of the same-origin proxy
   (`demo/src/app/api/transliterate/route.ts`) is that only the frontend is public.
+  The base `docker-compose.yml` binds the backend to `127.0.0.1:8000` (host-local
+  only), so it is reachable for same-host `curl`/SSH-forwards but **not** on the
+  VM's public interfaces — distinct from merely "not routed through the tunnel".
 - No `next.config.js` change is needed: all browser requests are relative, and
   `next start` serves any Host, so the app works on any tunnel domain.
 - Over a tunnel the browser↔frontend leg is real internet latency; the status-bar

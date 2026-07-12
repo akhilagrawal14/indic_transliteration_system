@@ -15,7 +15,9 @@
 # URL on your own domain, use a NAMED tunnel instead (see docs/setup.md).
 services:
   tunnel:
-    image: cloudflare/cloudflared:latest
+    # Pinned for reproducibility / supply-chain (matches the host cloudflared).
+    # Bump deliberately; do not use :latest.
+    image: cloudflare/cloudflared:2026.3.0
     command: tunnel --no-autoupdate --url http://frontend:3000
     depends_on:
       - frontend

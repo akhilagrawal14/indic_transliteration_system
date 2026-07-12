@@ -7,7 +7,7 @@ Documenting the key technical decisions, the alternatives considered, and why ea
 ## ADR-1: Serving Engine -- CTranslate2 INT8 on CPU
 
 ### Context
-IndicXlit is a fairseq transformer seq2seq model (~30M params). We need single-word inference in <30ms on CPU to fit within the overall p95 < 100ms budget after network and queueing overhead.
+IndicXlit is a fairseq transformer seq2seq model (~11.5M params; the 132 MB checkpoint is mostly Adam optimizer state, not weights). We need single-word inference in <30ms on CPU to fit within the overall p95 < 100ms budget after network and queueing overhead.
 
 ### Options Considered
 
@@ -92,7 +92,7 @@ The obvious always-on-GPU answer is expensive, and that cost grows with every co
 CPU serving. GPU is not used at any step.
 
 ### Consequences
-- Measured result is stronger than the cost argument alone: CT2 INT8 on an L4 is **1.7x slower** than one CPU core at batch=1 (p50 12.3 ms vs 7.4 ms), because kernel-launch and transfer overhead dominate for a 30M-param char-level model on ~10-character inputs. Batching would help but is unavailable (independent single-word requests).
+- Measured result is stronger than the cost argument alone: CT2 INT8 on an L4 is **1.7x slower** than one CPU core at batch=1 (p50 12.3 ms vs 7.4 ms), because kernel-launch and transfer overhead dominate for an 11.5M-param char-level model on ~10-character inputs. Batching would help but is unavailable (independent single-word requests).
 - **GPU is unnecessary even for precomputation.** The dictionary (52k words) builds CPU-only in ~101 s; CTranslate2 saturates the cores for the batch. The L4s stay idle for the whole project.
 - The model-path latency difference is invisible to users anyway: 90%+ of requests never hit the model, and courtroom network RTT dwarfs both.
 

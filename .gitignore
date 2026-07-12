@@ -104,5 +104,6 @@ loadtest/results/*.json
 # Internal-working / assignment docs (not part of the public deliverable)
 docs/assignment.md
 docs/project_plan.md
+docs/model.md
 claude.md
 graphify-out
