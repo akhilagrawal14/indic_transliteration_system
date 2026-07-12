@@ -11,8 +11,8 @@ const TYPE_PAUSE_MS = 650;
 const LRU_MAX = 2000;
 
 type Source = "dict" | "cache" | "model" | "offline" | "memory";
-type Result = { candidates: string[]; source: Source; latency_ms: number };
-type Timing = { source: Source; rtt: number; serverMs: number };
+type Result = { candidates: string[]; source: Source; latency_ms: number; proxyMs?: number };
+type Timing = { source: Source; rtt: number; serverMs: number; word: string; proxyMs?: number };
 type Suggestion = {
   range: [number, number];
   query: string;
@@ -65,20 +65,33 @@ function loadClientDict(): Promise<void> {
   return clientDictLoading;
 }
 
+// Single-flight: while a word is being fetched, concurrent callers (typing pause,
+// Tab, prefetch, selection) share the one in-flight promise instead of each firing
+// its own request for the same word.
+const inflight = new Map<string, Promise<Result | null>>();
+
 async function lookup(word: string): Promise<Result | null> {
   const key = word.toLowerCase();
   const cached = lru.get(key);
   if (cached) return cached;
-  try {
-    const res = await fetch(`${API}?word=${encodeURIComponent(key)}&topk=5`);
-    if (!res.ok) return offlineLookup(key);
-    const body = await res.json();
-    const result: Result = { candidates: body.candidates, source: body.source as Source, latency_ms: body.latency_ms };
-    lruPut(key, result);
-    return result;
-  } catch {
-    return offlineLookup(key);
-  }
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const p = (async (): Promise<Result | null> => {
+    try {
+      const res = await fetch(`${API}?word=${encodeURIComponent(key)}&topk=5`);
+      if (!res.ok) return await offlineLookup(key);
+      const body = await res.json();
+      const result: Result = { candidates: body.candidates, source: body.source as Source, latency_ms: body.latency_ms, proxyMs: body.proxy_ms };
+      lruPut(key, result);
+      return result;
+    } catch {
+      return await offlineLookup(key);
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, p);
+  return p;
 }
 
 async function offlineLookup(word: string): Promise<Result | null> {
@@ -96,6 +109,25 @@ async function lookupTimed(word: string): Promise<{ result: Result | null; rtt: 
   const t0 = performance.now();
   const result = await lookup(word);
   return { result, rtt: Math.round((performance.now() - t0) * 10) / 10 };
+}
+
+// Words already background-fetched (or attempted) so a scan of an unchanged
+// document re-issues nothing. On-demand lookups (caret/Tab) ignore this set, so a
+// prefetch that failed offline still retries when the user lands on the word.
+const prefetched = new Set<string>();
+
+// Background-fetch a batch of words with a small concurrency cap so a large paste
+// produces a bounded trickle of requests, not a burst. Skips words already known
+// (LRU), in flight, or previously attempted.
+async function prefetchWords(words: string[]): Promise<void> {
+  const queue = words.filter((w) => !lru.has(w) && !inflight.has(w) && !prefetched.has(w));
+  for (const w of queue) prefetched.add(w);
+  const CONCURRENCY = 4;
+  let i = 0;
+  const worker = async () => {
+    while (i < queue.length) await lookup(queue[i++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
 }
 
 const isLatin = (s: string) => /^[A-Za-z]+$/.test(s);
@@ -172,17 +204,17 @@ export default function Page() {
     setPos({ top: c.top + c.height + 4, left: Math.max(0, Math.min(c.left, maxLeft)) });
   };
 
-  // Background-transliterate every latin word in the text so words you typed
-  // past are cached; when the cursor later lands on one, it shows instantly.
+  // Background-transliterate latin words in the text so words you typed past are
+  // cached; when the cursor later lands on one, it shows instantly. Only words not
+  // already known/in-flight/attempted actually hit the network (see prefetchWords),
+  // so repeated scans of a long transcript are near-free and issue no duplicates.
   const prefetch = useCallback((value: string) => {
     let matches: string[] = value.match(/[A-Za-z]{2,}/g) || [];
     // Skip the word still being typed (text ends mid-word), so we don't waste
     // lookups on partials like "sunv" / "sunva".
     if (/[A-Za-z]$/.test(value) && matches.length) matches = matches.slice(0, -1);
     const words = Array.from(new Set(matches.map((w) => w.toLowerCase())));
-    (async () => {
-      for (const w of words) if (!lru.has(w)) await lookup(w);
-    })();
+    void prefetchWords(words);
   }, []);
 
   // Show suggestions for the latin word at the caret (instant if prefetched).
@@ -206,7 +238,7 @@ export default function Page() {
       source: r.source, appendSpace: w.end === value.length,
       rtt, serverMs: r.latency_ms,
     });
-    setLastTiming({ source: r.source, rtt, serverMs: r.latency_ms });
+    setLastTiming({ source: r.source, rtt, serverMs: r.latency_ms, proxyMs: r.proxyMs, word: w.word });
     setActive(0);
     place(el, w.end);
   }, []);
@@ -235,7 +267,7 @@ export default function Page() {
       lookupTimed(selected).then(({ result: r, rtt }) => {
         if (!r) return;
         setSugg({ range: [s, e], query: selected, candidates: r.candidates, source: r.source, appendSpace: false, rtt, serverMs: r.latency_ms });
-        setLastTiming({ source: r.source, rtt, serverMs: r.latency_ms });
+        setLastTiming({ source: r.source, rtt, serverMs: r.latency_ms, proxyMs: r.proxyMs, word: selected });
         setActive(0);
         place(el, e);
       });
@@ -244,7 +276,7 @@ export default function Page() {
     const remembered = english.current.get(selected);
     if (remembered) {
       setSugg({ range: [s, e], query: remembered.roman, candidates: remembered.candidates, source: "memory", appendSpace: false, rtt: 0, serverMs: 0 });
-      setLastTiming({ source: "memory", rtt: 0, serverMs: 0 });
+      setLastTiming({ source: "memory", rtt: 0, serverMs: 0, word: remembered.roman });
       setActive(0);
       place(el, e);
     } else {
@@ -361,12 +393,21 @@ export default function Page() {
         {lastTiming ? (
           <>
             <span className="muted">Last lookup</span>
+            <span className="metric">&ldquo;{lastTiming.word}&rdquo;</span>
             <span className={`badge ${lastTiming.source}`} title={SOURCE_HELP[lastTiming.source]}>
               {SOURCE_LABEL[lastTiming.source]}
             </span>
             <span className="metric"><b>{lastTiming.rtt} ms</b> round-trip</span>
             {lastTiming.serverMs > 0 && (
               <span className="metric">{lastTiming.serverMs} ms backend compute</span>
+            )}
+            {/* The gap between round-trip and backend: browser<->frontend transit
+                (the port-forward tunnel), computed as rtt minus the proxy's own
+                backend-call time. Shown only when a real network trip happened. */}
+            {lastTiming.proxyMs != null && (
+              <span className="metric" title="Browser to frontend transit (port-forward tunnel) = round-trip minus the proxy's backend call. This is where the gap lives, not the backend.">
+                {Math.max(0, Math.round((lastTiming.rtt - lastTiming.proxyMs) * 10) / 10)} ms network/tunnel
+              </span>
             )}
             <span className={`target ${lastTiming.rtt < 100 ? "ok" : "warn"}`}>
               {lastTiming.rtt < 100 ? "within" : "over"} the &lt; 100 ms target

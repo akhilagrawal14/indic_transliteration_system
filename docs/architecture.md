@@ -33,7 +33,7 @@ CTranslate2 INT8 on CPU, with stock fairseq as the quality reference. ONNX Runti
 ## ADR-2: Dictionary-First Architecture
 
 ### Context
-Transliteration is deterministic: `mera` always produces the same ranked candidates. Courtroom vocabulary follows a Zipfian distribution where a small number of common words account for most lookups.
+Transliteration is deterministic: `mera` always produces the same ranked candidates. Natural romanized text follows a Zipfian distribution where a small number of common words account for most lookups (measured: 89.47% volume-weighted coverage on held-out Dakshina natural text). Courtroom vocabulary is *assumed* to behave similarly; this is an unvalidated hypothesis until measured on real transcripts (see report §1.3).
 
 ### Options Considered
 
@@ -45,30 +45,29 @@ Transliteration is deterministic: `mera` always produces the same ranked candida
 | Client-side dictionary | ~85-90% for head words | 0ms, works offline | Higher (distribution) | Zero server load for hits |
 
 ### Decision
-Precomputed in-memory dictionary as primary path, in-process LRU cache for recent model results, CTranslate2 model for the tail. Client-side dictionary as a stretch/hardening goal.
+Precomputed in-memory dictionary as primary path, in-process LRU cache for recent model results, CTranslate2 model for the tail. Client-side dictionary (top head words bundled into the browser) is **implemented** as the offline fallback.
 
 ### Consequences
-- Need to precompute the dictionary offline using the GPU (one-time cost)
-- Dictionary size (~100k entries, ~20-50MB) must fit in RAM per worker
+- Need to precompute the dictionary offline, one-time (CPU-only; see ADR-4 — no GPU required)
+- Dictionary size (~52k entries, ~6.8MB) must fit in RAM per worker
 - Cache hit ratio is the single most important metric to track in production
 - Adding a new language means precomputing a new dictionary
 
 ---
 
-## ADR-3: GET Endpoints for Cacheability
+## ADR-3: GET Endpoints; Application Caching, Not HTTP Caching
 
 ### Context
-The transliteration API response is purely a function of its input. There is no user state, no session, no side effects.
+The transliteration API response is purely a function of its input. There is no user state, no session, no side effects. That makes GET the right verb (idempotent, retry-safe, URL = cache key) and makes the response *cacheable in principle*. But "cacheable in principle" is not the same as safely relying on external HTTP caching: a model or dictionary redeploy changes outputs, and public caches (browser/CDN) have no way to know unless we version the cache key, which we do not.
 
 ### Decision
-Use `GET /transliterate?word=...&lang=...&topk=...` instead of POST. Set `Cache-Control: public, max-age=86400` since outputs never change.
+Use `GET /transliterate?word=...&lang=...&topk=...` instead of POST. Do **not** rely on browser/CDN HTTP caching. Serve backend responses `Cache-Control: no-store`, and have the same-origin Next.js proxy fetch with `no-store` without forwarding upstream cache headers. The caching benefit comes from two application-owned layers instead: the server's in-process LRU (recent model results) and the browser's session LRU plus the bundled offline dictionary.
 
 ### Consequences
-- Browsers cache responses automatically (free client-side caching)
-- CDNs (Cloudflare, etc.) can cache at the edge for free (free geographic distribution)
-- Reverse proxies (nginx) can cache upstream responses
-- Query string length is not a concern: inputs are single short words
-- No CORS preflight overhead (GET is a simple request)
+- No stale-cache hazard on redeploy: there is no external cache to invalidate; the LRUs clear on restart/reload, and a dictionary/model change ships a fresh artifact.
+- The caching win is explicit and measurable in the app (LRU hit ratio, offline-dict coverage) rather than an unverified assumption about edge behavior.
+- GET is still correct: idempotent and retry-safe, no CORS preflight overhead (simple request), and query-string length is a non-issue for single short words.
+- Trade-off: we forgo free geographic edge caching. Acceptable because ~90%+ of lookups never reach the model, the offline dictionary already handles the disconnected/slow-network case, and re-enabling public caching later only requires adding a versioned cache key (e.g. model/dict hash in the path).
 
 ---
 
@@ -81,13 +80,11 @@ The obvious always-on-GPU answer is expensive, and that cost grows with every co
 
 | Metric | CPU + Dict (chosen) | Always-on L4 GPU |
 |---|---|---|
-| Inference latency (model path) | ~10-20ms | ~3-5ms |
+| Inference latency (model path, p50) | ~7.4ms (measured) | ~12.3ms (measured — *slower* at batch=1) |
 | Dictionary path latency | <1ms | <1ms (same) |
-| End-to-end p95 (mixed, 500 users) | ~15-25ms | ~5-10ms |
 | GPU utilization | n/a | <5% (massive waste) |
-| Monthly cost (single instance) | ~$60-80 | ~$500-700 |
-| Monthly cost (2x for HA) | ~$120-160 | ~$1,000-1,400 |
-| Cost at 10x users | ~$300-500 | ~$3,000-5,000 |
+| Monthly cost (single instance) | $144.79 (n2-standard-4) | ~$500-700 |
+| Monthly cost (2x for HA) | $289.58 | ~$1,000-1,400 |
 | Cold start | ~2s (process start) | ~10-30s (GPU init) |
 | Ops burden | Standard Linux | CUDA drivers, GPU monitoring |
 
@@ -125,7 +122,7 @@ Load test realism directly affects the credibility of benchmark numbers. A unifo
 The Locust load test draws words from the Dakshina vocabulary with frequency weighting (Zipfian). Each simulated "typist" user emits lookups at ~0.7 requests/second (word-boundary debounce, ~40 WPM typing speed, not every word triggers a lookup).
 
 ### Consequences
-- Cache hit ratios in the load test will match production behavior (~90%+)
+- Cache hit ratios in the load test reflect the Dakshina natural-text distribution (~90%+); production courtroom hit ratios are expected to be similar but remain unvalidated until measured on real transcripts
 - The cache-off ablation scenario (Scenario 4) provides the counterfactual: what the system looks like without the dictionary
 - Comparing Scenario 2 (realistic) vs Scenario 4 (all-model) is the strongest evidence for the dictionary architecture
 

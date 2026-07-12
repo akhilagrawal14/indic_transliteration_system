@@ -1,8 +1,18 @@
 """FastAPI transliteration service.
 
-Serving path: precomputed dictionary -> in-process LRU cache -> model. All
-endpoints are GET so responses are cacheable by browsers, CDNs, and proxies
-(transliteration is deterministic per input).
+Serving path: precomputed dictionary -> in-process LRU cache -> model. Endpoints
+are GET because a transliteration is a pure, idempotent function of its input
+(no user state, no side effects), which keeps the URL the cache key and requests
+retry-safe.
+
+Caching policy (see ADR-3): the deployed product does NOT rely on browser/CDN
+HTTP caching. The same-origin Next.js proxy fetches with `no-store` and does not
+forward upstream cache headers, so responses are not cached at the edge. The
+caching benefit comes instead from two application-owned layers: the server's
+in-process LRU (model results) and the browser's session LRU + bundled offline
+dictionary. Backend responses are therefore served `Cache-Control: no-store` to
+avoid an external cache holding results that a model/dictionary redeploy would
+invalidate (public caching would require versioned cache keys we do not emit).
 
 Note on metrics: with multiple uvicorn workers each process keeps its own
 counters, so /metrics reflects one worker. Traffic is balanced across identical
@@ -15,6 +25,7 @@ import re
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from typing import Deque, Dict
 
 from fastapi import FastAPI, HTTPException, Query
@@ -23,6 +34,7 @@ from fastapi.responses import JSONResponse
 
 from server.config import get_settings
 from server.dictionary import DictionaryCache
+from server.singleflight import SingleFlight
 
 # Romanized input is latin letters only. Reject anything else (digits,
 # punctuation, other scripts) rather than feeding it to the model.
@@ -32,7 +44,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
-app = FastAPI(title="Indic Transliteration Runtime")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Build the dictionary/cache and engine once, on startup.
+
+    Replaces the deprecated `@app.on_event("startup")` handler. `_build_engine`
+    is looked up on the module at call time, so tests can monkeypatch it with a
+    stub engine before entering the TestClient context.
+    """
+    global _engine, _cache
+    _cache = DictionaryCache(dict_path=settings.dict_path,
+                             lru_size=settings.lru_cache_size)
+    _engine = _build_engine()
+    logger.info("Ready: engine=%s device=%s dict_size=%d",
+                settings.engine, settings.device, _cache.size)
+    yield
+
+
+app = FastAPI(title="Indic Transliteration Runtime", lifespan=lifespan)
 
 # Allow the browser demo (a different origin, e.g. localhost:3000) to call the
 # API. Responses are public and GET-only, so a permissive default is fine;
@@ -47,6 +78,9 @@ app.add_middleware(
 # Built at startup.
 _engine = None
 _cache: DictionaryCache = None  # type: ignore[assignment]
+
+# Coalesce concurrent model misses for the same word into one inference.
+_singleflight = SingleFlight()
 
 # Lightweight in-process metrics.
 _counts: Dict[str, int] = {"total": 0, "dict": 0, "cache": 0, "model": 0}
@@ -70,16 +104,6 @@ def _build_engine():
     raise ValueError(f"unknown engine: {settings.engine}")
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    global _engine, _cache
-    _cache = DictionaryCache(dict_path=settings.dict_path,
-                             lru_size=settings.lru_cache_size)
-    _engine = _build_engine()
-    logger.info("Ready: engine=%s device=%s dict_size=%d",
-                settings.engine, settings.device, _cache.size)
-
-
 def _record(source: str, elapsed_ms: float) -> None:
     with _metrics_lock:
         _counts["total"] += 1
@@ -95,13 +119,22 @@ def transliterate(
 ) -> JSONResponse:
     """Return ranked Indic candidates for a romanized word.
 
+    API contract: `word` is a single *normalized token* — latin letters only,
+    no whitespace, punctuation, digits, or apostrophes/hyphens. The frontend is
+    responsible for extracting clean tokens (it does; see `wordAtCursor` in the
+    demo). Anything else is rejected 422 rather than being fed to the model; this
+    endpoint is deliberately not a general "romanized input" cleaner.
+
     The response is a pure function of `word` (and the fixed lang/model/beam), so
-    it is deterministic and safe to cache. The LRU always stores the canonical
-    full candidate list (`settings.topk` entries) regardless of the requested
-    `topk`, and the response slices to `topk`; this prevents a small-topk request
-    from poisoning the cache for a later larger-topk request. The LRU is
-    process-local and cleared on restart, so a model change (which requires a
-    restart and dictionary regeneration) cannot serve stale cached values.
+    it is deterministic. The LRU always stores the canonical full candidate list
+    (`settings.topk` entries) regardless of the requested `topk`, and the response
+    slices to `topk`; this prevents a small-topk request from poisoning the cache
+    for a later larger-topk request. The LRU is process-local and cleared on
+    restart, so a model change (which requires a restart and dictionary
+    regeneration) cannot serve stale cached values. The response is `no-store`
+    (see module docstring / ADR-3): correctness relies on the process-local LRU
+    and the client's session LRU, not on any external HTTP cache that a redeploy
+    could leave stale.
     """
     if lang is not None and lang != settings.lang:
         raise HTTPException(
@@ -119,10 +152,17 @@ def transliterate(
 
     candidates, source = _cache.lookup(key)
     if candidates is None:
-        # Always compute/store the canonical full list, then slice per request.
-        candidates = _engine.transliterate(key, topk=settings.topk)
-        _cache.store(key, candidates)
-        source = "model"
+        # Miss: coalesce concurrent misses for the same key so only one thread
+        # runs inference. The leader computes/stores the canonical full list;
+        # followers wait and reuse it, and are attributed to the cache (they did
+        # not run the model) so metrics reflect true inference count.
+        def _compute() -> list:
+            cands = _engine.transliterate(key, topk=settings.topk)
+            _cache.store(key, cands)
+            return cands
+
+        candidates, was_leader = _singleflight.do(key, _compute)
+        source = "model" if was_leader else "cache"
 
     elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
     _record(source, elapsed_ms)
@@ -134,13 +174,25 @@ def transliterate(
             "source": source,
             "latency_ms": elapsed_ms,
         },
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/livez")
+def livez() -> Dict[str, str]:
+    """Liveness: the process and event loop are up. Does not touch the model or
+    dictionary, so it stays ok during startup and never restarts a healthy worker
+    that is merely still loading. Use this for the orchestrator's liveness probe."""
+    return {"status": "ok"}
 
 
 @app.get("/healthz")
 def healthz() -> Dict[str, object]:
-    """Liveness plus a quick view of what the worker loaded."""
+    """Readiness: ok only once the dictionary and engine have finished loading.
+    Returns 503 during startup so a load balancer holds traffic until the worker
+    can actually serve. Use this for the readiness probe."""
+    if _cache is None or _engine is None:
+        raise HTTPException(status_code=503, detail="starting up")
     return {"status": "ok", "engine": settings.engine, "dict_size": _cache.size}
 
 

@@ -283,14 +283,15 @@ python scripts/microbench.py \
 # 8.2 Print results table
 python scripts/microbench.py --print-table eval/results/microbench.json
 
-# Expected output (approximate):
+# Measured output (see report §2, actual runs):
 # | Engine         | Device | p50 (ms) | p95 (ms) | p99 (ms) |
 # |----------------|--------|----------|----------|----------|
-# | fairseq        | CPU    | ~80      | ~130     | ~160     |
-# | fairseq        | GPU-L4 | ~12      | ~18      | ~22      |
-# | ct2 INT8       | CPU    | ~8       | ~18      | ~25      |
-# | ct2 INT8       | GPU-L4 | ~3       | ~6       | ~8       |
+# | fairseq FP32   | CPU    | ~73      | ~108     | ~130     |
+# | ct2 INT8       | CPU    | ~7.4     | ~11.6    | ~13.7    |
+# | ct2 INT8       | GPU-L4 | ~12.3    | ~18.5    | ~21.6    |  # slower than CPU at batch=1
 # | dict lookup    | CPU    | ~0.01    | ~0.02    | ~0.03    |
+# Note: the L4 GPU is 1.7x SLOWER than one CPU core at batch=1 (kernel-launch/transfer
+# overhead dominates a 30M-param char model on ~10-char inputs). GPU is not used.
 ```
 
 ---

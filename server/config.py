@@ -1,5 +1,7 @@
 """Runtime configuration loaded from environment variables (.env)."""
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from server.engine.base import validate_beam
@@ -18,9 +20,11 @@ class Settings(BaseSettings):
         env_file=".env", env_prefix="XLIT_", extra="ignore"
     )
 
-    engine: str = "ct2"                 # ct2 | fairseq
-    device: str = "cpu"                 # cpu | cuda (cuda for benchmarking only)
-    lang: str = "hi"
+    # Typed so an invalid value fails at settings load with a clear pydantic
+    # error, instead of deep in startup (e.g. `_build_engine` raising ValueError).
+    engine: Literal["ct2", "fairseq"] = "ct2"
+    device: Literal["cpu", "cuda"] = "cpu"   # cuda for benchmarking only
+    lang: str = "hi"                         # any IndicXlit lang code the model ships
     beam_width: int = 5
     topk: int = 5
 

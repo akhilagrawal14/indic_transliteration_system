@@ -30,6 +30,10 @@ LEXICON_TRAIN = f"{BASE}/lexicons/hi.translit.sampled.train.tsv"
 LEXICON_TEST = f"{BASE}/lexicons/hi.translit.sampled.test.tsv"
 CORPUS_DEV = f"{BASE}/romanized/hi.romanized.rejoined.dev.roman.txt"
 CORPUS_TEST = f"{BASE}/romanized/hi.romanized.rejoined.test.roman.txt"
+# The bundled browser offline dictionary (a subset of the server dictionary). Its
+# coverage on natural *test* traffic is the honest offline hit rate, as opposed to
+# self-coverage measured on the corpus it was selected from.
+CLIENT_DICT = "demo/public/client_dict_hi.json"
 
 TOKEN_RE = re.compile(r"[a-z]+")
 
@@ -100,6 +104,15 @@ def main() -> None:
         "corpus_dev_only": hit_rate(test_counts, dev_vocab),
         "lexicon_plus_corpus_dev": hit_rate(test_counts, lex_train | dev_vocab),
     }
+
+    # Browser offline dictionary, measured on held-out test traffic (not the
+    # corpus it was selected from), so this is true offline coverage. Skipped if
+    # the generated artifact is not present (it is gitignored; run
+    # scripts/build_client_dict.py first).
+    if os.path.exists(CLIENT_DICT):
+        with open(CLIENT_DICT, encoding="utf-8") as handle:
+            client_keys = {k.lower() for k in json.load(handle)}
+        scenarios["client_dict_offline"] = hit_rate(test_counts, client_keys)
 
     # --- Lexicon view: documented as the wrong instrument ---
     lex_test = lexicon_inputs(LEXICON_TEST)

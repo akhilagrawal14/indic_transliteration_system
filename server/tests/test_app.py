@@ -85,6 +85,11 @@ def test_healthz(client):
     assert body["dict_size"] == 1
 
 
+def test_livez(client):
+    # Liveness is independent of what loaded; always ok on a live process.
+    assert client.get("/livez").json() == {"status": "ok"}
+
+
 def test_metrics_shape(client):
     client.get("/transliterate", params={"word": "mera"})
     body = client.get("/metrics").json()

@@ -145,8 +145,8 @@ Figures are the recommended 2-instance HA configuration (single-instance compute
 
 ## Tech Stack
 
-- **Backend:** Python 3.10, FastAPI, CTranslate2, marisa-trie
-- **Frontend:** Next.js, TypeScript, Tailwind CSS
+- **Backend:** Python 3.10, FastAPI, CTranslate2, in-memory JSON dictionary + LRU cache
+- **Frontend:** Next.js, TypeScript, handwritten CSS (`globals.css`)
 - **Load Testing:** Locust
 - **Containerization:** Docker, Docker Compose
 - **Model:** AI4Bharat IndicXlit (fairseq transformer, INT8 quantized)
