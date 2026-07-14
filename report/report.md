@@ -98,7 +98,7 @@ A GPU is the obvious first reach for this workload. I benchmarked it on an L4 ra
 | Cold start | **26 ms** | 344 ms |
 | Process RSS | **29 MB** | 176 MB |
 
-The GPU is **1.7x slower at p50**. The reason is structural, not a tuning failure: a request is one word of ~10 characters through an 11.5M-parameter character-level transformer. The arithmetic is negligible, so per-call kernel launch and host-device transfer overhead dominate. GPUs recover this cost through batching, but batching is unavailable here. Requests arrive independently from separate typists, so forming a batch means holding requests in a queue, spending the exact latency budget we are trying to protect.
+The GPU is **1.7x slower at p50**. The reason is structural, not a tuning failure: a request is one word of ~10 characters through an 11.5M-parameter character-level transformer. The arithmetic is negligible — **~767 MFLOPs, which an L4 could compute in ~6 µs of pure math against a measured 12.33 ms (§4.1f)** — so per-call kernel launch and host-device transfer overhead dominate. GPUs recover this cost through batching, but batching is unavailable here. Requests arrive independently from separate typists, so forming a batch means holding requests in a queue, spending the exact latency budget we are trying to protect.
 
 So the GPU case collapses on three axes at once:
 
@@ -116,7 +116,7 @@ Both cost angles confirm it: at the ~32 model-path RPS this workload puts on a b
 
 ### 3.1 Model Runtime
 
-- Base model: AI4Bharat IndicXlit (fairseq transformer seq2seq, **~11.5M params** — verified 11,487,748). The 132 MB `.pt` is a *training* checkpoint, not inference weights: ~44 MB of fp32 weights plus ~88 MB of Adam optimizer state (two momentum buffers per parameter), which inference discards.
+- Base model: AI4Bharat IndicXlit (fairseq transformer seq2seq, **~11.5M params** — verified 11,487,748). Architecture: **6-layer encoder + 6-layer decoder, `d_model` 256, FFN 1024, 4 heads**, 54-token source (character) vocabulary and 806-token target vocabulary. One lookup costs ~767 MFLOPs at beam 5 (§4.1f). The 132 MB `.pt` is a *training* checkpoint, not inference weights: ~44 MB of fp32 weights plus ~88 MB of Adam optimizer state (two momentum buffers per parameter), which inference discards.
 - Serving engine: CTranslate2 INT8 on CPU, **13 MB** after conversion — ~3.5x smaller than the fp32 weights (~46 MB), ~10x smaller than the full training checkpoint
 - Quality reference: stock fairseq `XlitEngine` FP32
 
@@ -257,6 +257,26 @@ This workload is the opposite on every axis:
 - **CT2 already is the specialized runtime.** CTranslate2 is purpose-built for transformer-NMT decoding with fused C++ kernels and a native C++ beam search, and measures **7.39 ms p50 on one CPU core** (§4.1). Threading past one intra-op thread buys only ~8% (§4.1, point 3), so there is little single-request headroom left to chase.
 
 The decisive point is architectural, not a benchmark gap: **the dictionary already serves ~89.5% of traffic at ~0.4 µs (§1.3), so the model path is a small minority of requests, and on that path CT2 INT8 is already the fastest tested runtime.** There is no CPU runtime swap worth making; CT2 INT8 is at or near the practical floor for this model and workload.
+
+### 4.1f The FLOP budget: why the GPU loses, quantitatively
+
+Sections 2.3 and 4.1 assert that "the arithmetic is negligible, so per-call overhead dominates." That claim is checkable, so here it is with a number. Reproduce with `python scripts/flops.py` (it reads the architecture straight from the checkpoint, so these numbers cannot drift from the model actually served). Counting from the actual architecture (6+6 layers, `d_model` 256, FFN 1024, target vocab 806) for a typical lookup — source `S=12` tokens (~10 characters plus the `__hi__` tag and `</s>`), `T=11` decode steps, beam 5, with KV caching so the prefix is not recomputed:
+
+| Component | MACs | FLOPs | Share |
+|---|---|---|---|
+| Encoder (12 tokens x 6 layers) | 57.1 M | **114 MFLOPs** | 15% |
+| Decoder (11 steps x 5 beams x 6 layers, + output projection) | 326.6 M | **653 MFLOPs** | 85% |
+| **Total per request** | **383.7 M** | **~767 MFLOPs (0.77 GFLOPs)** | 100% |
+
+(FLOPs = 2 x MACs. Greedy decoding would be **260 MFLOPs**; beam 5 is what makes the decoder dominate. Cross-attention K/V are projected once from the encoder output and cached, which is why this is below the crude `2 x params x tokens` ≈ 1.5 GFLOPs rule of thumb.)
+
+Two conclusions fall straight out:
+
+1. **The CPU is running this efficiently.** 0.77 GFLOPs in a measured 7.39 ms p50 is an effective **~104 GFLOP/s on a single core** — a healthy fraction of one core's AVX-512 VNNI INT8 peak. There is no large idle margin for a different CPU runtime to reclaim (which is the §4.1e conclusion, from the other direction).
+
+2. **The GPU is starved, not stressed.** An L4 (~121 TOPS dense INT8) would chew through 0.77 GFLOPs in roughly **6 µs** of pure arithmetic — and still take ~634 µs even if it ran at just 1% of peak. The measured L4 p50 is **12.33 ms**. So well over 99% of the GPU's time is kernel-launch and host-device transfer overhead, not math. The structural cause is now precise: decoding is **11 strictly sequential steps x 6 layers**, each a tiny GEMM (256x256), so at batch size 1 the device issues hundreds of small, dependent kernel launches that cannot be overlapped or amortized. A GPU needs a big batch to hide that; this workload cannot supply one (§2.3).
+
+This is the quantitative form of the whole runtime argument: the model is far too small, and the requests far too serial, for accelerator economics to apply.
 
 ### 4.2 Load Test Results
 
@@ -476,6 +496,9 @@ python scripts/microbench.py --print-table eval/results/microbench.json
 
 # Section 1.3: Zipfian coverage and held-out dictionary hit rate
 python scripts/zipf_coverage.py --output eval/results/zipf_coverage.json
+
+# Section 4.1f: FLOP budget per request (reads dims from the checkpoint)
+python scripts/flops.py
 
 # Section 5: quality parity, FP32 baseline vs INT8
 python eval/eval.py --engine fairseq --lang hi --topk 5 --output eval/results/baseline_fp32.json
